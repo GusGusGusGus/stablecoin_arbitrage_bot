@@ -1,0 +1,14 @@
+node_modules/
+coverage/
+cache/
+typechain/
+typechain-types/
+artifacts/
+.env
+.DS_Store
+*.tsbuildinfo
+bot/ArbitrageRunner/bin/
+bot/ArbitrageRunner/obj/
+config/appsettings.json
+config/backtests/*.json
+package-lock.json

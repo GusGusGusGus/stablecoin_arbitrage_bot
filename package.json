@@ -1,0 +1,26 @@
+{
+  "name": "solid-arbitrage-bot",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "hardhat compile",
+    "lint": "eslint --ext .ts scripts test",
+    "test": "hardhat test",
+    "coverage": "hardhat coverage",
+    "deploy": "hardhat run scripts/deploy.ts"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "@types/node": "^20.11.30",
+    "dotenv": "^16.4.5",
+    "hardhat": "^2.20.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "@balancer-labs/v2-interfaces": "^0.4.0",
+    "@openzeppelin/contracts": "^5.0.2",
+    "@uniswap/v3-periphery": "^1.4.4",
+    "ethers": "^6.10.0"
+  }
+}
