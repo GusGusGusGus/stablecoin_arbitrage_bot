@@ -1,5 +1,6 @@
 using System.Threading;
 using System.Threading.Tasks;
+using ArbitrageRunner.Infrastructure;
 using ArbitrageRunner.Models;
 using Microsoft.Extensions.Logging;
 using Nethereum.Web3;
@@ -12,7 +13,10 @@ public sealed class PriceFeedService
     private readonly AppConfig _config;
     private readonly ILogger<PriceFeedService> _logger;
 
-    public PriceFeedService(EthereumClientFactory clientFactory, AppConfig config, ILogger<PriceFeedService> logger)
+    public PriceFeedService(
+        EthereumClientFactory clientFactory,
+        AppConfig config,
+        ILogger<PriceFeedService> logger)
     {
         _clientFactory = clientFactory;
         _config = config;

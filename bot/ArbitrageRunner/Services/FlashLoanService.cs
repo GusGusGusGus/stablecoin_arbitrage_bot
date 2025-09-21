@@ -1,1 +1,119 @@
-using System.Collections.Generic;using System.Numerics;using System.Threading;using System.Threading.Tasks;using ArbitrageRunner.Infrastructure;using ArbitrageRunner.Models;using Microsoft.Extensions.Logging;using Nethereum.ABI.FunctionEncoding.Attributes;using Nethereum.Contracts;using Nethereum.Hex.HexConvertors.Extensions;using Nethereum.Web3;using Nethereum.Web3.Accounts;namespace ArbitrageRunner.Services;public sealed class FlashLoanService{    private readonly EthereumClientFactory _clientFactory;    private readonly AppConfig _config;    private readonly ILogger<FlashLoanService> _logger;    public FlashLoanService(        EthereumClientFactory clientFactory,        AppConfig config,        ILogger<FlashLoanService> logger)    {        _clientFactory = clientFactory;        _config = config;        _logger = logger;    }    public async Task<string> ExecuteAsync(        ArbitrageOpportunity opportunity,        CancellationToken cancellationToken)    {        if (string.IsNullOrWhiteSpace(_config.Contract.ExecutorKey))        {            throw new InvalidOperationException("Executor key is not configured");        }        if (string.IsNullOrWhiteSpace(_config.Contract.ArbitrageAddress) ||        _config.Contract.ArbitrageAddress == "0x0000000000000000000000000000000000000000")        {            throw new InvalidOperationException("Arbitrage contract address missing");        }        var account = new Account(_config.Contract.ExecutorKey);        Web3 web3 = _clientFactory.CreateMainnetClient();        web3.TransactionManager.Account = account;        var handler = web3.Eth.GetContractTransactionHandler<ExecuteFlashArbitrageFunction>();        var call = new ExecuteFlashArbitrageFunction        {            FromAddress = account.Address,            Asset = opportunity.BorrowAsset,            Amount = opportunity.BorrowAmount,            MinProfit = opportunity.MinimumProfit,            BaseFeeUpperBound = BigInteger.Parse("100000000000"),            Deadline = opportunity.Deadline,            Payout = account.Address        };        for (var i = 0; i < opportunity.RouteTargets.Length; i++)        {            call.Trades.Add(                new TradeInstruction { Target = opportunity.RouteTargets[i], Data = opportunity.Calldata[i] });        }        _logger.LogInformation("Submitting arbitrage execution for opportunity {Opportunity}", opportunity.OpportunityId);        var receipt = await handler.SendRequestAndWaitForReceiptAsync(_config.Contract.ArbitrageAddress, call, cancellationToken);        _logger.LogInformation("Arbitrage transaction mined: {TxHash}", receipt.TransactionHash);        return receipt.TransactionHash;    }    [Function("executeFlashArbitrage")]    public sealed class ExecuteFlashArbitrageFunction : FunctionMessage    {        [Parameter("address", "asset", 1)]        public string Asset { get; set; } = string.Empty;        [Parameter("uint256", "amount", 2)]        public BigInteger Amount { get; set; }        [Parameter("tuple[]", "trades", 3)]        public List<TradeInstruction> Trades { get; set; } = new();        [Parameter("uint256", "minProfit", 4)]        public BigInteger MinProfit { get; set; }        [Parameter("uint256", "baseFeeUpperBound", 5)]        public BigInteger BaseFeeUpperBound { get; set; }        [Parameter("uint256", "deadline", 6)]        public ulong Deadline { get; set; }        [Parameter("address", "payout", 7)]        public string Payout { get; set; } = string.Empty;    }        [Struct("TradeInstruction")]    public sealed class TradeInstruction    {        [Parameter("address", "target", 1)]        public string Target { get; set; } = string.Empty;        [Parameter("bytes", "data", 2)]         public byte[] Data { get; set; } = Array.Empty<byte>();    } }
+using System;
+using System.Collections.Generic;
+using System.Numerics;
+using System.Threading;
+using System.Threading.Tasks;
+using ArbitrageRunner.Infrastructure;
+using ArbitrageRunner.Models;
+using Microsoft.Extensions.Logging;
+using Nethereum.ABI.FunctionEncoding.Attributes;
+using Nethereum.Contracts;
+using Nethereum.Web3;
+using Nethereum.Web3.Accounts;
+
+namespace ArbitrageRunner.Services;
+
+public sealed class FlashLoanService
+{
+    private readonly EthereumClientFactory _clientFactory;
+    private readonly AppConfig _config;
+    private readonly ILogger<FlashLoanService> _logger;
+
+    public FlashLoanService(
+        EthereumClientFactory clientFactory,
+        AppConfig config,
+        ILogger<FlashLoanService> logger)
+    {
+        _clientFactory = clientFactory;
+        _config = config;
+        _logger = logger;
+    }
+
+    public async Task<string> ExecuteAsync(
+        ArbitrageOpportunity opportunity,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(_config.Contract.ExecutorKey))
+        {
+            throw new InvalidOperationException("Executor key is not configured");
+        }
+
+        if (string.IsNullOrWhiteSpace(_config.Contract.ArbitrageAddress) ||
+            _config.Contract.ArbitrageAddress == "0x0000000000000000000000000000000000000000")
+        {
+            throw new InvalidOperationException("Arbitrage contract address missing");
+        }
+
+        var account = new Account(_config.Contract.ExecutorKey);
+        var web3 = _clientFactory.CreateMainnetClient(account);
+
+        var handler = web3.Eth.GetContractTransactionHandler<ExecuteFlashArbitrageFunction>();
+        var call = new ExecuteFlashArbitrageFunction
+        {
+            FromAddress = account.Address,
+            Asset = opportunity.BorrowAsset,
+            Amount = opportunity.BorrowAmount,
+            MinProfit = opportunity.MinimumProfit,
+            BaseFeeUpperBound = BigInteger.Parse("100000000000"),
+            Deadline = opportunity.Deadline,
+            Payout = account.Address
+        };
+
+        for (var i = 0; i < opportunity.RouteTargets.Length; i++)
+        {
+            call.Trades.Add(new TradeInstruction
+            {
+                Target = opportunity.RouteTargets[i],
+                Data = opportunity.Calldata[i]
+            });
+        }
+
+        _logger.LogInformation(
+            "Submitting arbitrage execution for opportunity {Opportunity}",
+            opportunity.OpportunityId);
+
+        var receipt = await handler.SendRequestAndWaitForReceiptAsync(
+            _config.Contract.ArbitrageAddress,
+            call,
+            cancellationToken);
+
+        _logger.LogInformation("Arbitrage transaction mined: {TxHash}", receipt.TransactionHash);
+        return receipt.TransactionHash;
+    }
+
+    [Function("executeFlashArbitrage")]
+    public sealed class ExecuteFlashArbitrageFunction : FunctionMessage
+    {
+        [Parameter("address", "asset", 1)]
+        public string Asset { get; set; } = string.Empty;
+
+        [Parameter("uint256", "amount", 2)]
+        public BigInteger Amount { get; set; }
+
+        [Parameter("tuple[]", "trades", 3)]
+        public List<TradeInstruction> Trades { get; set; } = new();
+
+        [Parameter("uint256", "minProfit", 4)]
+        public BigInteger MinProfit { get; set; }
+
+        [Parameter("uint256", "baseFeeUpperBound", 5)]
+        public BigInteger BaseFeeUpperBound { get; set; }
+
+        [Parameter("uint256", "deadline", 6)]
+        public ulong Deadline { get; set; }
+
+        [Parameter("address", "payout", 7)]
+        public string Payout { get; set; } = string.Empty;
+    }
+
+    [Struct("TradeInstruction")]
+    public sealed class TradeInstruction
+    {
+        [Parameter("address", "target", 1)]
+        public string Target { get; set; } = string.Empty;
+
+        [Parameter("bytes", "data", 2)]
+        public byte[] Data { get; set; } = Array.Empty<byte>();
+    }
+}
+

@@ -1,1 +1,71 @@
-using System.Collections.Generic;\nusing System.Linq;using System.IO;using System.Numerics;using System.Text.Json;using System.Threading;using System.Threading.Tasks;using ArbitrageRunner.Models;using Microsoft.Extensions.Logging;namespace ArbitrageRunner.Services;public sealed class BacktestService{    private readonly AppConfig _config;    private readonly ILogger<BacktestService> _logger;    public BacktestService(AppConfig config, ILogger<BacktestService> logger)    {        _config = config;        _logger = logger;    }    public async Task<IReadOnlyList<ArbitrageOpportunity>> LoadAsync(string? snapshotFile, CancellationToken cancellationToken)    {        var path = snapshotFile ?? Path.Combine(_config.HistoricalData.SnapshotDirectory, "latest.json");        if (!File.Exists(path))        {            throw new FileNotFoundException("Snapshot file not found", path);        }        await using var stream = File.OpenRead(path);        var dto = await JsonSerializer.DeserializeAsync<List<SnapshotDto>>(stream, cancellationToken: cancellationToken) ?? new List<SnapshotDto>();        var result = new List<ArbitrageOpportunity>(dto.Count);        foreach (var snapshot in dto)        {            result.Add(new ArbitrageOpportunity            {                OpportunityId = snapshot.OpportunityId,                BorrowAsset = snapshot.BorrowAsset,                BorrowAmount = BigInteger.Parse(snapshot.BorrowAmount),                MinimumProfit = BigInteger.Parse(snapshot.MinimumProfit),                RouteTargets = snapshot.RouteTargets,                Calldata = snapshot.Calldata.Select(Convert.FromBase64String).ToArray(),                EstimatedProfitUsd = snapshot.EstimatedProfitUsd,                EstimatedGasUsd = snapshot.EstimatedGasUsd,                Deadline = snapshot.Deadline            });        }        return result;    }    private sealed record SnapshotDto    {        public string OpportunityId { get; init; } = string.Empty;        public string BorrowAsset { get; init; } = string.Empty;        public string BorrowAmount { get; init; } = "0";        public string MinimumProfit { get; init; } = "0";        public string[] RouteTargets { get; init; } = System.Array.Empty<string>();        public string[] Calldata { get; init; } = System.Array.Empty<string>();        public decimal EstimatedProfitUsd { get; init; }        public decimal EstimatedGasUsd { get; init; }        public ulong Deadline { get; init; }    }}
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Numerics;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+using ArbitrageRunner.Models;
+using Microsoft.Extensions.Logging;
+
+namespace ArbitrageRunner.Services;
+
+public sealed class BacktestService
+{
+    private readonly AppConfig _config;
+    private readonly ILogger<BacktestService> _logger;
+
+    public BacktestService(AppConfig config, ILogger<BacktestService> logger)
+    {
+        _config = config;
+        _logger = logger;
+    }
+
+    public async Task<IReadOnlyList<ArbitrageOpportunity>> LoadAsync(
+        string? snapshotFile,
+        CancellationToken cancellationToken)
+    {
+        var path = snapshotFile ?? Path.Combine(_config.HistoricalData.SnapshotDirectory, "latest.json");
+        if (!File.Exists(path))
+        {
+            throw new FileNotFoundException("Snapshot file not found", path);
+        }
+
+        await using var stream = File.OpenRead(path);
+        var dto = await JsonSerializer.DeserializeAsync<List<SnapshotDto>>(stream, cancellationToken: cancellationToken)
+                  ?? new List<SnapshotDto>();
+
+        var result = new List<ArbitrageOpportunity>(dto.Count);
+        foreach (var snapshot in dto)
+        {
+            result.Add(new ArbitrageOpportunity
+            {
+                OpportunityId = snapshot.OpportunityId,
+                BorrowAsset = snapshot.BorrowAsset,
+                BorrowAmount = BigInteger.Parse(snapshot.BorrowAmount),
+                MinimumProfit = BigInteger.Parse(snapshot.MinimumProfit),
+                RouteTargets = snapshot.RouteTargets,
+                Calldata = snapshot.Calldata.Select(Convert.FromBase64String).ToArray(),
+                EstimatedProfitUsd = snapshot.EstimatedProfitUsd,
+                EstimatedGasUsd = snapshot.EstimatedGasUsd,
+                Deadline = snapshot.Deadline
+            });
+        }
+
+        return result;
+    }
+
+    private sealed record SnapshotDto
+    {
+        public string OpportunityId { get; init; } = string.Empty;
+        public string BorrowAsset { get; init; } = string.Empty;
+        public string BorrowAmount { get; init; } = "0";
+        public string MinimumProfit { get; init; } = "0";
+        public string[] RouteTargets { get; init; } = Array.Empty<string>();
+        public string[] Calldata { get; init; } = Array.Empty<string>();
+        public decimal EstimatedProfitUsd { get; init; }
+        public decimal EstimatedGasUsd { get; init; }
+        public ulong Deadline { get; init; }
+    }
+}

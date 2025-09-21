@@ -12,7 +12,10 @@ public sealed class OpportunityScanner
     private readonly AppConfig _config;
     private readonly ILogger<OpportunityScanner> _logger;
 
-    public OpportunityScanner(PriceFeedService priceFeed, AppConfig config, ILogger<OpportunityScanner> logger)
+    public OpportunityScanner(
+        PriceFeedService priceFeed,
+        AppConfig config,
+        ILogger<OpportunityScanner> logger)
     {
         _priceFeed = priceFeed;
         _config = config;
