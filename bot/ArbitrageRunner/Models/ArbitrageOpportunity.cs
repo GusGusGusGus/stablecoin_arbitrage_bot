@@ -12,5 +12,9 @@ public sealed record ArbitrageOpportunity
     public required byte[][] Calldata { get; init; }
     public decimal EstimatedProfitUsd { get; init; }
     public decimal EstimatedGasUsd { get; init; }
+    public decimal EstimatedL1DataUsd { get; init; }
+    public decimal EstimatedFlashLoanFeeUsd { get; init; }
+    public uint EstimatedGasUnits { get; init; }
+    public uint FlashLoanFeeBps { get; init; } = 9;
     public ulong Deadline { get; init; }
 }

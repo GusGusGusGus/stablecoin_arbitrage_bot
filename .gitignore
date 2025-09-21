@@ -11,4 +11,6 @@ bot/ArbitrageRunner/bin/
 bot/ArbitrageRunner/obj/
 config/appsettings.json
 config/backtests/*.json
+data/**/*.db
+data/**/*.sqlite
 package-lock.json

@@ -11,7 +11,8 @@ public sealed record AppConfig
     {
         Networks = new NetworkConfig(),
         Contract = new ContractConfig(),
-        Risk = new RiskConfig()
+        Risk = new RiskConfig(),
+        HistoricalData = new HistoricalDataConfig()
     };
 }
 
@@ -19,7 +20,7 @@ public sealed record NetworkConfig
 {
     public string MainnetRpc { get; init; } = "https://mainnet.infura.io/v3/KEY";
     public string OptimismRpc { get; init; } = "https://mainnet.optimism.io";
-    public string FlashbotsRelay { get; init; } = "";
+    public string FlashbotsRelay { get; init; } = string.Empty;
 }
 
 public sealed record ContractConfig
@@ -41,5 +42,6 @@ public sealed record RiskConfig
 
 public sealed record HistoricalDataConfig
 {
-    public string SnapshotDirectory { get; init; } = "data/snapshots";
+    public string DatabasePath { get; init; } = "data/backtests.sqlite";
+    public bool AutoMigrate { get; init; } = true;
 }

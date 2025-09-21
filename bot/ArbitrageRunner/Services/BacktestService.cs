@@ -1,11 +1,7 @@
-using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Numerics;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using ArbitrageRunner.Infrastructure;
 using ArbitrageRunner.Models;
 using Microsoft.Extensions.Logging;
 
@@ -13,59 +9,37 @@ namespace ArbitrageRunner.Services;
 
 public sealed class BacktestService
 {
-    private readonly AppConfig _config;
+    private readonly SnapshotStore _snapshotStore;
     private readonly ILogger<BacktestService> _logger;
 
-    public BacktestService(AppConfig config, ILogger<BacktestService> logger)
+    public BacktestService(SnapshotStore snapshotStore, ILogger<BacktestService> logger)
     {
-        _config = config;
+        _snapshotStore = snapshotStore;
         _logger = logger;
     }
 
-    public async Task<IReadOnlyList<ArbitrageOpportunity>> LoadAsync(
-        string? snapshotFile,
+    public Task<IReadOnlyList<ArbitrageOpportunity>> LoadRecentAsync(int? limit, CancellationToken cancellationToken)
+        => LoadInternalAsync(opportunityId: null, limit, cancellationToken);
+
+    public Task<IReadOnlyList<ArbitrageOpportunity>> LoadByIdAsync(string opportunityId, CancellationToken cancellationToken)
+        => LoadInternalAsync(opportunityId, limit: 1, cancellationToken);
+
+    public Task PersistAsync(ArbitrageOpportunity opportunity, CancellationToken cancellationToken)
+        => _snapshotStore.UpsertAsync(opportunity, cancellationToken);
+
+    private async Task<IReadOnlyList<ArbitrageOpportunity>> LoadInternalAsync(
+        string? opportunityId,
+        int? limit,
         CancellationToken cancellationToken)
     {
-        var path = snapshotFile ?? Path.Combine(_config.HistoricalData.SnapshotDirectory, "latest.json");
-        if (!File.Exists(path))
+        await _snapshotStore.InitializeAsync(cancellationToken);
+        var snapshots = await _snapshotStore.GetSnapshotsAsync(opportunityId, limit, cancellationToken);
+
+        if (snapshots.Count == 0)
         {
-            throw new FileNotFoundException("Snapshot file not found", path);
+            _logger.LogWarning("No snapshots found for id {OpportunityId}", opportunityId);
         }
 
-        await using var stream = File.OpenRead(path);
-        var dto = await JsonSerializer.DeserializeAsync<List<SnapshotDto>>(stream, cancellationToken: cancellationToken)
-                  ?? new List<SnapshotDto>();
-
-        var result = new List<ArbitrageOpportunity>(dto.Count);
-        foreach (var snapshot in dto)
-        {
-            result.Add(new ArbitrageOpportunity
-            {
-                OpportunityId = snapshot.OpportunityId,
-                BorrowAsset = snapshot.BorrowAsset,
-                BorrowAmount = BigInteger.Parse(snapshot.BorrowAmount),
-                MinimumProfit = BigInteger.Parse(snapshot.MinimumProfit),
-                RouteTargets = snapshot.RouteTargets,
-                Calldata = snapshot.Calldata.Select(Convert.FromBase64String).ToArray(),
-                EstimatedProfitUsd = snapshot.EstimatedProfitUsd,
-                EstimatedGasUsd = snapshot.EstimatedGasUsd,
-                Deadline = snapshot.Deadline
-            });
-        }
-
-        return result;
-    }
-
-    private sealed record SnapshotDto
-    {
-        public string OpportunityId { get; init; } = string.Empty;
-        public string BorrowAsset { get; init; } = string.Empty;
-        public string BorrowAmount { get; init; } = "0";
-        public string MinimumProfit { get; init; } = "0";
-        public string[] RouteTargets { get; init; } = Array.Empty<string>();
-        public string[] Calldata { get; init; } = Array.Empty<string>();
-        public decimal EstimatedProfitUsd { get; init; }
-        public decimal EstimatedGasUsd { get; init; }
-        public ulong Deadline { get; init; }
+        return snapshots;
     }
 }

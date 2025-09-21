@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using ArbitrageRunner.Models;
@@ -97,31 +98,26 @@ public sealed class ArbitrageWorker : BackgroundService
             return;
         }
 
-        var snapshots = await _backtest.LoadAsync(_options.SnapshotFile, cancellationToken);
-        foreach (var snapshot in snapshots)
+        var snapshot = (await _backtest.LoadByIdAsync(_options.OpportunityId, cancellationToken)).FirstOrDefault();
+        if (snapshot is null)
         {
-            if (!string.Equals(snapshot.OpportunityId, _options.OpportunityId, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            var validated = await _planner.ValidateAsync(snapshot, cancellationToken);
-            if (validated is null)
-            {
-                _logger.LogWarning("Opportunity {OpportunityId} failed validation", snapshot.OpportunityId);
-                return;
-            }
-
-            await _flashLoan.ExecuteAsync(validated, cancellationToken);
+            _logger.LogWarning("Opportunity {OpportunityId} not found in snapshot store", _options.OpportunityId);
             return;
         }
 
-        _logger.LogWarning("Opportunity {OpportunityId} not found in snapshot source", _options.OpportunityId);
+        var validated = await _planner.ValidateAsync(snapshot, cancellationToken);
+        if (validated is null)
+        {
+            _logger.LogWarning("Opportunity {OpportunityId} failed validation", snapshot.OpportunityId);
+            return;
+        }
+
+        await _flashLoan.ExecuteAsync(validated, cancellationToken);
     }
 
     private async Task RunBacktestAsync(CancellationToken cancellationToken)
     {
-        var snapshots = await _backtest.LoadAsync(_options.SnapshotFile, cancellationToken);
+        var snapshots = await _backtest.LoadRecentAsync(limit: null, cancellationToken);
         foreach (var snapshot in snapshots)
         {
             var validated = await _planner.ValidateAsync(snapshot, cancellationToken);

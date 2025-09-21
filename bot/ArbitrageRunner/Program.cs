@@ -33,6 +33,7 @@ public static class Program
         builder.Services.AddSingleton(appConfig);
 
         builder.Services.AddSingleton<EthereumClientFactory>();
+        builder.Services.AddSingleton<SnapshotStore>();
         builder.Services.AddSingleton<PriceFeedService>();
         builder.Services.AddSingleton<GasOracleService>();
         builder.Services.AddSingleton<FlashLoanService>();
