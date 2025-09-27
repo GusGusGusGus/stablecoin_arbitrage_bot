@@ -56,7 +56,7 @@ public sealed class SnapshotStore
             return;
         }
 
-        var commandText = $$"""
+        var commandText = $"""
         CREATE TABLE IF NOT EXISTS {TableName} (
             opportunity_id TEXT PRIMARY KEY,
             borrow_asset TEXT NOT NULL,
@@ -90,7 +90,7 @@ public sealed class SnapshotStore
         await connection.OpenAsync(cancellationToken);
 
         await using var command = connection.CreateCommand();
-        command.CommandText = $$"""
+        command.CommandText = $"""
         INSERT INTO {TableName} (
             opportunity_id,
             borrow_asset,
