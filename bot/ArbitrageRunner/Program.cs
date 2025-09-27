@@ -1,12 +1,12 @@
 using System;
 using System.Threading.Tasks;
+using ArbitrageRunner.Infrastructure;
+using ArbitrageRunner.Models;
+using ArbitrageRunner.Services;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using ArbitrageRunner.Infrastructure;
-using ArbitrageRunner.Models;
-using ArbitrageRunner.Services;
 
 namespace ArbitrageRunner;
 
@@ -32,8 +32,25 @@ public static class Program
         var appConfig = builder.Configuration.GetSection("Arbitrage").Get<AppConfig>() ?? AppConfig.Default();
         builder.Services.AddSingleton(appConfig);
 
+        if (!string.IsNullOrWhiteSpace(appConfig.PriceFeeds.UniswapV3.Endpoint))
+        {
+            builder.Services.AddHttpClient(PriceFeedService.UniswapHttpClientName, client =>
+            {
+                client.BaseAddress = new Uri(appConfig.PriceFeeds.UniswapV3.Endpoint);
+            });
+        }
+
+        if (!string.IsNullOrWhiteSpace(appConfig.PriceFeeds.Balancer.Endpoint))
+        {
+            builder.Services.AddHttpClient(PriceFeedService.BalancerHttpClientName, client =>
+            {
+                client.BaseAddress = new Uri(appConfig.PriceFeeds.Balancer.Endpoint);
+            });
+        }
+
         builder.Services.AddSingleton<EthereumClientFactory>();
         builder.Services.AddSingleton<SnapshotStore>();
+        builder.Services.AddHttpClient();
         builder.Services.AddSingleton<PriceFeedService>();
         builder.Services.AddSingleton<GasOracleService>();
         builder.Services.AddSingleton<FlashLoanService>();

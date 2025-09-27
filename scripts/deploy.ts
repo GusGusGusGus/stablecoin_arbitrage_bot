@@ -8,6 +8,14 @@ type Config = {
   allowedSelectors?: string[];
 };
 
+type AppSettings = {
+  Arbitrage?: {
+    Contract?: {
+      ArbitrageAddress?: string;
+    };
+  };
+};
+
 async function main() {
   const [deployer] = await ethers.getSigners();
   const poolAddress = process.env.AAVE_POOL_ADDRESS;
@@ -61,7 +69,37 @@ async function main() {
     console.warn("No deployment config found at", configPath);
   }
 
+  persistAddressArtifacts(address);
+
   console.info("Deployment complete.\n");
+}
+
+function persistAddressArtifacts(address: string) {
+  const outputPath = process.env.ARB_DEPLOYMENT_OUTPUT ?? path.join("config", "deployment.latest.json");
+  fs.writeFileSync(
+    outputPath,
+    JSON.stringify({ arbitrage: { address, deployedAt: new Date().toISOString() } }, null, 2),
+    "utf8"
+  );
+  console.info("Wrote deployment artifact to", outputPath);
+
+  const appSettingsPath = process.env.APPSETTINGS_PATH ?? path.join("config", "appsettings.json");
+  if (!fs.existsSync(appSettingsPath)) {
+    console.warn("Appsettings file not found, skipping automatic contract address injection");
+    return;
+  }
+
+  try {
+    const raw = fs.readFileSync(appSettingsPath, "utf8");
+    const settings: AppSettings = JSON.parse(raw);
+    settings.Arbitrage = settings.Arbitrage ?? {};
+    settings.Arbitrage.Contract = settings.Arbitrage.Contract ?? {};
+    settings.Arbitrage.Contract.ArbitrageAddress = address;
+    fs.writeFileSync(appSettingsPath, JSON.stringify(settings, null, 2), "utf8");
+    console.info("Updated", appSettingsPath, "with new arbitrage address");
+  } catch (err) {
+    console.warn("Failed to update appsettings with new address", err);
+  }
 }
 
 main().catch((error) => {

@@ -14,3 +14,4 @@ config/backtests/*.json
 data/**/*.db
 data/**/*.sqlite
 package-lock.json
+config/deployment.latest.json

@@ -1,5 +1,7 @@
 using System;
 using System.Linq;
+using System.Numerics;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using ArbitrageRunner.Models;
@@ -58,6 +60,8 @@ public sealed class ArbitrageWorker : BackgroundService
 
     private async Task RunLoopAsync(CancellationToken cancellationToken)
     {
+        var delay = TimeSpan.FromSeconds(_config.Risk.LoopBackoffSeconds);
+
         while (!cancellationToken.IsCancellationRequested)
         {
             try
@@ -65,14 +69,14 @@ public sealed class ArbitrageWorker : BackgroundService
                 var opportunity = await _scanner.DetectAsync(cancellationToken);
                 if (opportunity is null)
                 {
-                    await Task.Delay(TimeSpan.FromSeconds(_config.Risk.BackoffSeconds), cancellationToken);
+                    await Task.Delay(delay, cancellationToken);
                     continue;
                 }
 
                 var validated = await _planner.ValidateAsync(opportunity, cancellationToken);
                 if (validated is null)
                 {
-                    await Task.Delay(TimeSpan.FromSeconds(_config.Risk.BackoffSeconds), cancellationToken);
+                    await Task.Delay(delay, cancellationToken);
                     continue;
                 }
 
@@ -85,30 +89,33 @@ public sealed class ArbitrageWorker : BackgroundService
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Loop execution error");
-                await Task.Delay(TimeSpan.FromSeconds(_config.Risk.BackoffSeconds), cancellationToken);
+                await Task.Delay(delay, cancellationToken);
             }
         }
     }
 
     private async Task RunOnDemandAsync(CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(_options.OpportunityId))
+        ArbitrageOpportunity? opportunity = null;
+
+        if (!string.IsNullOrWhiteSpace(_options.OpportunityPayload))
         {
-            _logger.LogWarning("No opportunity id supplied for on-demand mode");
-            return;
+            opportunity = ParseOpportunityPayload(_options.OpportunityPayload!, _options.ExecuteOnOptimism);
+        }
+        else
+        {
+            opportunity = await _scanner.DetectAsync(cancellationToken);
+            if (opportunity is null)
+            {
+                _logger.LogWarning("No live opportunity detected for on-demand execution");
+                return;
+            }
         }
 
-        var snapshot = (await _backtest.LoadByIdAsync(_options.OpportunityId, cancellationToken)).FirstOrDefault();
-        if (snapshot is null)
-        {
-            _logger.LogWarning("Opportunity {OpportunityId} not found in snapshot store", _options.OpportunityId);
-            return;
-        }
-
-        var validated = await _planner.ValidateAsync(snapshot, cancellationToken);
+        var validated = await _planner.ValidateAsync(opportunity, cancellationToken);
         if (validated is null)
         {
-            _logger.LogWarning("Opportunity {OpportunityId} failed validation", snapshot.OpportunityId);
+            _logger.LogWarning("On-demand opportunity {OpportunityId} failed validation", opportunity.OpportunityId);
             return;
         }
 
@@ -129,5 +136,63 @@ public sealed class ArbitrageWorker : BackgroundService
 
             _logger.LogInformation("Backtest would execute opportunity {OpportunityId}", snapshot.OpportunityId);
         }
+    }
+
+    private static ArbitrageOpportunity ParseOpportunityPayload(string payload, bool executeOnOptimism)
+    {
+        var dto = JsonSerializer.Deserialize<OpportunityPayloadDto>(payload);
+        if (dto is null)
+        {
+            throw new InvalidOperationException("Unable to parse opportunity payload");
+        }
+
+        return new ArbitrageOpportunity
+        {
+            OpportunityId = dto.OpportunityId ?? Guid.NewGuid().ToString("N"),
+            BorrowAsset = dto.BorrowAsset,
+            BorrowAmount = BigInteger.Parse(dto.BorrowAmount ?? "0"),
+            MinimumProfit = BigInteger.Parse(dto.MinimumProfit ?? "0"),
+            RouteTargets = dto.RouteTargets ?? Array.Empty<string>(),
+            Calldata = DecodeCalldata(dto.Calldata ?? Array.Empty<string>()),
+            EstimatedProfitUsd = dto.EstimatedProfitUsd,
+            EstimatedGasUsd = dto.EstimatedGasUsd,
+            EstimatedL1DataUsd = dto.EstimatedL1DataUsd,
+            EstimatedFlashLoanFeeUsd = dto.EstimatedFlashLoanFeeUsd,
+            EstimatedGasUnits = dto.EstimatedGasUnits,
+            FlashLoanFeeBps = dto.FlashLoanFeeBps,
+            ExecuteOnOptimism = dto.ExecuteOnOptimism ?? executeOnOptimism,
+            BaseFeeUpperBoundWei = string.IsNullOrWhiteSpace(dto.BaseFeeUpperBoundWei) ? BigInteger.Zero : BigInteger.Parse(dto.BaseFeeUpperBoundWei),
+            Deadline = dto.Deadline
+        };
+    }
+
+    private static byte[][] DecodeCalldata(IReadOnlyList<string> encoded)
+    {
+        var result = new byte[encoded.Count][];
+        for (var i = 0; i < encoded.Count; i++)
+        {
+            result[i] = Convert.FromBase64String(encoded[i]);
+        }
+
+        return result;
+    }
+
+    private sealed record OpportunityPayloadDto
+    {
+        public string? OpportunityId { get; init; }
+        public string BorrowAsset { get; init; } = string.Empty;
+        public string? BorrowAmount { get; init; }
+        public string? MinimumProfit { get; init; }
+        public string[]? RouteTargets { get; init; }
+        public string[]? Calldata { get; init; }
+        public decimal EstimatedProfitUsd { get; init; }
+        public decimal EstimatedGasUsd { get; init; }
+        public decimal EstimatedL1DataUsd { get; init; }
+        public decimal EstimatedFlashLoanFeeUsd { get; init; }
+        public uint EstimatedGasUnits { get; init; }
+        public uint FlashLoanFeeBps { get; init; } = 9;
+        public bool? ExecuteOnOptimism { get; init; }
+        public string? BaseFeeUpperBoundWei { get; init; }
+        public ulong Deadline { get; init; }
     }
 }

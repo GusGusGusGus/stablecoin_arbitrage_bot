@@ -16,5 +16,7 @@ public sealed record ArbitrageOpportunity
     public decimal EstimatedFlashLoanFeeUsd { get; init; }
     public uint EstimatedGasUnits { get; init; }
     public uint FlashLoanFeeBps { get; init; } = 9;
+    public bool ExecuteOnOptimism { get; init; }
+    public BigInteger BaseFeeUpperBoundWei { get; init; } = BigInteger.Zero;
     public ulong Deadline { get; init; }
 }

@@ -45,33 +45,24 @@ public sealed class FlashLoanService
         }
 
         var account = new Account(_config.Contract.ExecutorKey);
-        var web3 = _clientFactory.CreateMainnetClient(account);
+        var web3 = opportunity.ExecuteOnOptimism
+            ? _clientFactory.CreateOptimismClient(account)
+            : _clientFactory.CreateMainnetClient(account);
 
         var handler = web3.Eth.GetContractTransactionHandler<ExecuteFlashArbitrageFunction>();
-        var call = new ExecuteFlashArbitrageFunction
-        {
-            FromAddress = account.Address,
-            Asset = opportunity.BorrowAsset,
-            Amount = opportunity.BorrowAmount,
-            MinProfit = opportunity.MinimumProfit,
-            BaseFeeUpperBound = BigInteger.Parse("100000000000"),
-            Deadline = opportunity.Deadline,
-            Payout = account.Address
-        };
+        var call = BuildTransactionMessage(opportunity, account.Address);
 
-        for (var i = 0; i < opportunity.RouteTargets.Length; i++)
+        try
         {
-            call.Trades.Add(new TradeInstruction
-            {
-                Target = opportunity.RouteTargets[i],
-                Data = opportunity.Calldata[i]
-            });
+            await handler.EstimateGasAsync(_config.Contract.ArbitrageAddress, call);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Gas estimation failed for opportunity payload; proceeding may revert");
+            await Task.Delay(TimeSpan.FromMilliseconds(10), cancellationToken);
         }
 
-        _logger.LogInformation(
-            "Submitting arbitrage execution for opportunity {Opportunity}",
-            opportunity.OpportunityId);
-
+        _logger.LogInformation("Submitting arbitrage execution for opportunity {Opportunity}", opportunity.OpportunityId);
         var receipt = await handler.SendRequestAndWaitForReceiptAsync(
             _config.Contract.ArbitrageAddress,
             call,
@@ -79,6 +70,33 @@ public sealed class FlashLoanService
 
         _logger.LogInformation("Arbitrage transaction mined: {TxHash}", receipt.TransactionHash);
         return receipt.TransactionHash;
+    }
+
+    private ExecuteFlashArbitrageFunction BuildTransactionMessage(ArbitrageOpportunity opportunity, string payout)
+    {
+        var message = new ExecuteFlashArbitrageFunction
+        {
+            FromAddress = payout,
+            Asset = opportunity.BorrowAsset,
+            Amount = opportunity.BorrowAmount,
+            MinProfit = opportunity.MinimumProfit,
+            BaseFeeUpperBound = opportunity.BaseFeeUpperBoundWei == BigInteger.Zero
+                ? BigInteger.Parse("100000000000")
+                : opportunity.BaseFeeUpperBoundWei,
+            Deadline = opportunity.Deadline,
+            Payout = payout
+        };
+
+        for (var i = 0; i < opportunity.RouteTargets.Length; i++)
+        {
+            message.Trades.Add(new TradeInstruction
+            {
+                Target = opportunity.RouteTargets[i],
+                Data = opportunity.Calldata[i]
+            });
+        }
+
+        return message;
     }
 
     [Function("executeFlashArbitrage")]
@@ -116,4 +134,3 @@ public sealed class FlashLoanService
         public byte[] Data { get; set; } = Array.Empty<byte>();
     }
 }
-

@@ -1,3 +1,5 @@
+using System;
+using System.Numerics;
 using System.Threading;
 using System.Threading.Tasks;
 using ArbitrageRunner.Models;
@@ -28,41 +30,64 @@ public sealed class ExecutionPlanner
             return null;
         }
 
-        var executionCostUsd = opportunity.EstimatedGasUsd
-            + opportunity.EstimatedL1DataUsd
-            + opportunity.EstimatedFlashLoanFeeUsd;
+        var network = opportunity.ExecuteOnOptimism ? GasNetwork.Optimism : GasNetwork.Mainnet;
+        var profile = opportunity.ExecuteOnOptimism ? _config.Risk.Optimism : _config.Risk.Mainnet;
 
-        if (executionCostUsd > _config.Risk.MaxGasUsd)
+        var gasQuote = await _gasOracle.GetGasQuoteAsync(network, cancellationToken);
+
+        var baseFeeUpperBound = ComputeBaseFeeUpperBound(gasQuote.GasPriceWei, _config.Risk.BaseFeeSafetyMultiplier);
+
+        var executionCostUsd = opportunity.EstimatedGasUsd * _config.Risk.PriorityFeeMultiplier
+            + opportunity.EstimatedL1DataUsd
+            + opportunity.EstimatedFlashLoanFeeUsd
+            + _config.Risk.RelayerFeeUsd
+            + _config.Risk.MevProtectionFeeUsd;
+
+        if (!_gasOracle.IsExecutionAffordable(network, executionCostUsd))
         {
             _logger.LogInformation(
-                "Opportunity {Opportunity} rejected: execution cost {CostUsd:F2} exceeds ceiling {Ceiling:F2}",
+                "Opportunity {Opportunity} rejected: execution cost {CostUsd:F2} exceeds allowed {Ceiling:F2} on {Network}",
                 opportunity.OpportunityId,
                 executionCostUsd,
-                _config.Risk.MaxGasUsd);
+                profile.MaxExecutionUsd,
+                network);
             return null;
         }
 
-        var projectedNetProfit = opportunity.EstimatedProfitUsd - executionCostUsd;
-        if (projectedNetProfit < _config.Risk.MinimumProfitUsd)
+        var sandwichBufferUsd = (opportunity.EstimatedProfitUsd * _config.Risk.SandwichBufferBps) / 10_000m;
+        var projectedNetProfit = opportunity.EstimatedProfitUsd - executionCostUsd - sandwichBufferUsd;
+        if (projectedNetProfit < profile.MinimumProfitUsd)
         {
             _logger.LogInformation(
                 "Opportunity {Opportunity} rejected: net profit {NetProfit:F2} below threshold {Threshold:F2}",
                 opportunity.OpportunityId,
                 projectedNetProfit,
-                _config.Risk.MinimumProfitUsd);
+                profile.MinimumProfitUsd);
             return null;
         }
 
-        // Optional additional guard: ensure current basefee is still compatible with the plan
-        if (opportunity.EstimatedGasUnits > 0)
+        var enriched = opportunity with
         {
-            var l1Fee = await _gasOracle.GetL1PriorityFeeAsync(cancellationToken);
-            _logger.LogDebug(
-                "Current L1 base+priority fee {Fee} wei for opportunity {Opportunity}",
-                l1Fee,
-                opportunity.OpportunityId);
+            BaseFeeUpperBoundWei = baseFeeUpperBound
+        };
+
+        _logger.LogDebug(
+            "Opportunity {Opportunity} validated with execution cost {CostUsd:F2} USD and net profit {NetProfit:F2} USD",
+            enriched.OpportunityId,
+            executionCostUsd,
+            projectedNetProfit);
+
+        return enriched;
+    }
+
+    private static BigInteger ComputeBaseFeeUpperBound(BigInteger gasPriceWei, decimal multiplier)
+    {
+        if (multiplier <= 1m)
+        {
+            return gasPriceWei;
         }
 
-        return opportunity;
+        var scaled = (BigInteger)Math.Ceiling(multiplier * 1_000m);
+        return (gasPriceWei * scaled) / 1_000;
     }
 }

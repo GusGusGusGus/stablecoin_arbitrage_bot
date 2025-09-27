@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+
 namespace ArbitrageRunner.Models;
 
 public sealed record AppConfig
@@ -5,13 +8,15 @@ public sealed record AppConfig
     public required NetworkConfig Networks { get; init; }
     public required ContractConfig Contract { get; init; }
     public required RiskConfig Risk { get; init; }
+    public PriceFeedsConfig PriceFeeds { get; init; } = new();
     public HistoricalDataConfig HistoricalData { get; init; } = new();
 
     public static AppConfig Default() => new()
     {
         Networks = new NetworkConfig(),
         Contract = new ContractConfig(),
-        Risk = new RiskConfig(),
+        Risk = RiskConfig.Default(),
+        PriceFeeds = new PriceFeedsConfig(),
         HistoricalData = new HistoricalDataConfig()
     };
 }
@@ -33,11 +38,49 @@ public sealed record ContractConfig
 
 public sealed record RiskConfig
 {
-    public decimal MinimumProfitUsd { get; init; } = 25m;
-    public decimal MaxGasUsd { get; init; } = 5m;
-    public decimal MaxSlippageBps { get; init; } = 15m;
-    public uint MaxConcurrentFlashLoans { get; init; } = 1;
-    public ulong BackoffSeconds { get; init; } = 4;
+    public RiskProfile Mainnet { get; init; } = RiskProfile.Create(25m, 6m, 20m);
+    public RiskProfile Optimism { get; init; } = RiskProfile.Create(20m, 3m, 15m);
+    public decimal RelayerFeeUsd { get; init; } = 0.5m;
+    public decimal MevProtectionFeeUsd { get; init; } = 0.0m;
+    public decimal PriorityFeeMultiplier { get; init; } = 1.2m;
+    public decimal BaseFeeSafetyMultiplier { get; init; } = 1.3m;
+    public decimal SandwichBufferBps { get; init; } = 5m;
+    public ulong LoopBackoffSeconds { get; init; } = 4;
+
+    public static RiskConfig Default() => new();
+}
+
+public sealed record RiskProfile
+{
+    public decimal MinimumProfitUsd { get; init; }
+    public decimal MaxExecutionUsd { get; init; }
+    public decimal MaxSlippageBps { get; init; }
+
+    public static RiskProfile Create(decimal minProfit, decimal maxExecution, decimal slippageBps) => new()
+    {
+        MinimumProfitUsd = minProfit,
+        MaxExecutionUsd = maxExecution,
+        MaxSlippageBps = slippageBps
+    };
+}
+
+public sealed record PriceFeedsConfig
+{
+    public UniswapPriceFeedConfig UniswapV3 { get; init; } = new();
+    public BalancerPriceFeedConfig Balancer { get; init; } = new();
+    public Dictionary<string, decimal> ManualQuotes { get; init; } = new();
+}
+
+public sealed record UniswapPriceFeedConfig
+{
+    public string Endpoint { get; init; } = string.Empty;
+    public Dictionary<string, string> Pools { get; init; } = new();
+}
+
+public sealed record BalancerPriceFeedConfig
+{
+    public string Endpoint { get; init; } = string.Empty;
+    public Dictionary<string, string> Pools { get; init; } = new();
 }
 
 public sealed record HistoricalDataConfig

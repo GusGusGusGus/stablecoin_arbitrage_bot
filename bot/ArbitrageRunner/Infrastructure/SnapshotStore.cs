@@ -56,7 +56,7 @@ public sealed class SnapshotStore
             return;
         }
 
-        var commandText = $"""
+        var commandText = $$"""
         CREATE TABLE IF NOT EXISTS {TableName} (
             opportunity_id TEXT PRIMARY KEY,
             borrow_asset TEXT NOT NULL,
@@ -70,10 +70,13 @@ public sealed class SnapshotStore
             estimated_flash_loan_fee_usd REAL NOT NULL DEFAULT 0,
             estimated_gas_units INTEGER NOT NULL DEFAULT 0,
             flash_loan_fee_bps INTEGER NOT NULL DEFAULT 9,
+            execute_on_optimism INTEGER NOT NULL DEFAULT 0,
+            base_fee_upper_bound_wei TEXT NOT NULL DEFAULT '0',
             deadline INTEGER NOT NULL,
             captured_at INTEGER NOT NULL DEFAULT (strftime('%s','now'))
         );
         CREATE INDEX IF NOT EXISTS IX_{TableName}_captured_at ON {TableName}(captured_at DESC);
+        CREATE INDEX IF NOT EXISTS IX_{TableName}_borrow_asset ON {TableName}(borrow_asset);
         """;
 
         await using var command = connection.CreateCommand();
@@ -87,7 +90,7 @@ public sealed class SnapshotStore
         await connection.OpenAsync(cancellationToken);
 
         await using var command = connection.CreateCommand();
-        command.CommandText = $"""
+        command.CommandText = $$"""
         INSERT INTO {TableName} (
             opportunity_id,
             borrow_asset,
@@ -101,6 +104,8 @@ public sealed class SnapshotStore
             estimated_flash_loan_fee_usd,
             estimated_gas_units,
             flash_loan_fee_bps,
+            execute_on_optimism,
+            base_fee_upper_bound_wei,
             deadline,
             captured_at
         ) VALUES (
@@ -116,6 +121,8 @@ public sealed class SnapshotStore
             @estimated_flash_loan_fee_usd,
             @estimated_gas_units,
             @flash_loan_fee_bps,
+            @execute_on_optimism,
+            @base_fee_upper_bound_wei,
             @deadline,
             strftime('%s','now')
         )
@@ -131,6 +138,8 @@ public sealed class SnapshotStore
             estimated_flash_loan_fee_usd=excluded.estimated_flash_loan_fee_usd,
             estimated_gas_units=excluded.estimated_gas_units,
             flash_loan_fee_bps=excluded.flash_loan_fee_bps,
+            execute_on_optimism=excluded.execute_on_optimism,
+            base_fee_upper_bound_wei=excluded.base_fee_upper_bound_wei,
             deadline=excluded.deadline,
             captured_at=excluded.captured_at;
         """;
@@ -188,6 +197,8 @@ public sealed class SnapshotStore
         command.Parameters.AddWithValue("@estimated_flash_loan_fee_usd", snapshot.EstimatedFlashLoanFeeUsd);
         command.Parameters.AddWithValue("@estimated_gas_units", snapshot.EstimatedGasUnits);
         command.Parameters.AddWithValue("@flash_loan_fee_bps", snapshot.FlashLoanFeeBps);
+        command.Parameters.AddWithValue("@execute_on_optimism", snapshot.ExecuteOnOptimism ? 1 : 0);
+        command.Parameters.AddWithValue("@base_fee_upper_bound_wei", snapshot.BaseFeeUpperBoundWei.ToString(CultureInfo.InvariantCulture));
         command.Parameters.AddWithValue("@deadline", snapshot.Deadline);
     }
 
@@ -213,6 +224,8 @@ public sealed class SnapshotStore
             EstimatedFlashLoanFeeUsd = Convert.ToDecimal(record["estimated_flash_loan_fee_usd"]),
             EstimatedGasUnits = Convert.ToUInt32(record["estimated_gas_units"]),
             FlashLoanFeeBps = Convert.ToUInt32(record["flash_loan_fee_bps"]),
+            ExecuteOnOptimism = Convert.ToInt32(record["execute_on_optimism"]) == 1,
+            BaseFeeUpperBoundWei = BigInteger.Parse(record["base_fee_upper_bound_wei"].ToString() ?? "0"),
             Deadline = (ulong)Convert.ToInt64(record["deadline"])
         };
     }
