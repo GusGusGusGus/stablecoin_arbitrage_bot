@@ -7,7 +7,7 @@ describe("StablecoinArbitrage", () => {
   const profitTarget = 30n * DECIMALS; // 30 USDC
 
   async function deployFixture() {
-    const [deployer, executor, payout] = await ethers.getSigners();
+    const [deployer, executor, payout, revenue] = await ethers.getSigners();
 
     const MockPool = await ethers.getContractFactory("MockPool");
     const pool = await MockPool.deploy();
@@ -41,7 +41,7 @@ describe("StablecoinArbitrage", () => {
     await arbitrage.setAllowedSelector(selector, true);
     await arbitrage.approveSpender(await usdc.getAddress(), await router.getAddress(), flashAmount);
 
-    return { pool, arbitrage, usdc, router, deployer, executor, payout, premium };
+    return { pool, arbitrage, usdc, router, deployer, executor, payout, premium, revenue };
   }
 
   it("executes a profitable flash loan arbitrage plan", async () => {
@@ -92,5 +92,70 @@ describe("StablecoinArbitrage", () => {
           payout.address
         )
     ).to.be.revertedWithCustomError(arbitrage, "InsufficientProfit");
+  });
+
+  it("reverts when borrow amount exceeds the per-asset cap", async () => {
+    const { arbitrage, executor, payout, usdc, router, premium } = await deployFixture();
+
+    const cap = flashAmount - 1n;
+    await arbitrage.setMaxBorrow(await usdc.getAddress(), cap);
+
+    const encodedSwap = router.interface.encodeFunctionData("swapExact", [
+      flashAmount,
+      flashAmount + profitTarget + premium,
+    ]);
+    const trades = [{ target: await router.getAddress(), data: encodedSwap }];
+    const deadline = (await ethers.provider.getBlock("latest"))!.timestamp + 3600;
+
+    await expect(
+      arbitrage
+        .connect(executor)
+        .executeFlashArbitrage(
+          await usdc.getAddress(),
+          flashAmount,
+          trades,
+          profitTarget,
+          1_000_000_000n,
+          deadline,
+          payout.address
+        )
+    )
+      .to.be.revertedWithCustomError(arbitrage, "BorrowAmountTooHigh")
+      .withArgs(flashAmount, cap);
+  });
+  it("collects the app fee when enabled", async () => {
+    const { arbitrage, executor, payout, usdc, router, premium, revenue } = await deployFixture();
+
+    const feeBps = 500n;
+    const appFee = (flashAmount * feeBps) / 10_000n;
+
+    await arbitrage.setFeeSettings(true, Number(feeBps), revenue.address);
+
+    // Ensure router holds enough liquidity to cover premium, profit and fee.
+    await usdc.mint(await router.getAddress(), appFee);
+
+    const encodedSwap = router.interface.encodeFunctionData("swapExact", [
+      flashAmount,
+      flashAmount + profitTarget + premium + appFee,
+    ]);
+    const trades = [{ target: await router.getAddress(), data: encodedSwap }];
+    const deadline = (await ethers.provider.getBlock("latest"))!.timestamp + 3600;
+
+    await expect(
+      arbitrage
+        .connect(executor)
+        .executeFlashArbitrage(
+          await usdc.getAddress(),
+          flashAmount,
+          trades,
+          profitTarget,
+          1_000_000_000n,
+          deadline,
+          payout.address
+        )
+    ).to.emit(arbitrage, "FlashArbitrageExecuted");
+
+    expect(await usdc.balanceOf(revenue.address)).to.equal(appFee);
+    expect(await usdc.balanceOf(payout.address)).to.equal(profitTarget);
   });
 });

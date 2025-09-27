@@ -1,0 +1,66 @@
+
+.config-page {
+    display: flex;
+    flex-direction: column;
+    gap: 1.75rem;
+}
+
+.config-form {
+    display: grid;
+    gap: 1.75rem;
+}
+
+fieldset {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    padding: 1rem 1.25rem;
+    display: grid;
+    gap: 1rem;
+}
+
+legend {
+    font-weight: 700;
+    padding: 0 0.5rem;
+}
+
+label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    font-size: 0.9rem;
+}
+
+input[type="text"],
+input[type="url"],
+input[type="password"],
+input[type="number"] {
+    padding: 0.65rem 0.85rem;
+    border-radius: 10px;
+    border: 1px solid rgba(148, 163, 184, 0.3);
+    background: rgba(255, 255, 255, 0.92);
+    color: inherit;
+}
+
+[data-theme="dark"] input[type="text"],
+[data-theme="dark"] input[type="url"],
+[data-theme="dark"] input[type="password"],
+[data-theme="dark"] input[type="number"] {
+    background: rgba(15, 23, 42, 0.65);
+    border-color: rgba(148, 163, 184, 0.25);
+}
+
+.toggle {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.toggle input[type="number"] {
+    max-width: 80px;
+}
+
+@media (max-width: 768px) {
+    fieldset {
+        padding: 1rem;
+    }
+}

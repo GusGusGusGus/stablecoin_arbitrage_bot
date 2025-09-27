@@ -1,0 +1,328 @@
+@page "/stats"
+@implements IDisposable
+@inject RunTelemetryService Telemetry
+
+<section class="content-card stats-card">
+    <header class="section-header">
+        <div>
+            <h2>Run Stats</h2>
+            <p>Overview of profit trends and bot performance across your stablecoin strategies.</p>
+        </div>
+        <label class="currency-filter">
+            Currency
+            <select @bind="SelectedCurrency">
+                @foreach (var currency in _currencyOptions)
+                {
+                    <option value="@currency">@currency</option>
+                }
+            </select>
+        </label>
+    </header>
+
+    <div class="stats-layout">
+        <div class="chart-wrapper">
+            @if (string.IsNullOrWhiteSpace(_chartPoints))
+            {
+                <p class="muted">Not enough data to render the profit chart yet.</p>
+            }
+            else
+            {
+                <svg viewBox="0 0 100 40" preserveAspectRatio="none">
+                    <polyline points="@_chartPoints" />
+                </svg>
+            }
+        </div>
+        <div class="summary-grid">
+            <div class="summary-card highlight">
+                <span class="summary-label">Total Profit (@SelectedCurrency)</span>
+                <span class="summary-value">@FormatCurrency(_totalProfitForCurrency)</span>
+            </div>
+            <div class="summary-card">
+                <span class="summary-label">Total Profit (USD)</span>
+                <span class="summary-value">@FormatCurrency(_totalProfitUsd)</span>
+            </div>
+            <div class="summary-card">
+                <span class="summary-label">Total Invested</span>
+                <span class="summary-value">@FormatCurrency(_totalInvestedUsd)</span>
+            </div>
+            <div class="summary-card">
+                <span class="summary-label">Transactions</span>
+                <span class="summary-value">@_transactionCount</span>
+            </div>
+            <div class="summary-card">
+                <span class="summary-label">Runs</span>
+                <span class="summary-value">@_runCount</span>
+            </div>
+            <div class="summary-card">
+                <span class="summary-label">Profitable Runs</span>
+                <span class="summary-value">@_profitableCount</span>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="content-card">
+    <header class="section-header">
+        <div>
+            <h2>Run History</h2>
+            <p>Detailed breakdown of every execution, including fees, venues, and outcomes.</p>
+        </div>
+        <div class="filters">
+            <label>
+                Mode
+                <select @bind="SelectedMode">
+                    <option value="">All</option>
+                    <option value="Loop">Loop</option>
+                    <option value="OnDemand">OnDemand</option>
+                    <option value="Backtest">Backtest</option>
+                </select>
+            </label>
+            <label>
+                Status
+                <select @bind="SelectedStatus">
+                    <option value="">All</option>
+                    <option>Scheduled</option>
+                    <option>Executing</option>
+                    <option>Succeeded</option>
+                    <option>Failed</option>
+                    <option>Cancelled</option>
+                </select>
+            </label>
+        </div>
+    </header>
+
+    <div class="history">
+        @if (_filteredRuns.Count == 0)
+        {
+            <p class="muted">No historical data available yet.</p>
+        }
+        else
+        {
+            @foreach (var group in _filteredRuns.GroupBy(r => r.Mode))
+            {
+                <section class="mode-group">
+                    <header class="mode-header">
+                        <h3>@group.Key</h3>
+                        <span>@group.Count() runs</span>
+                    </header>
+                    @foreach (var run in group)
+                    {
+                        <details class="history-entry">
+                            <summary>
+                                <div class="summary-line">
+                                    <span class="badge @run.Status.ToLowerInvariant()">@run.Status</span>
+                                    <span>@run.StartedAt.ToLocalTime():g → @(run.CompletedAt?.ToLocalTime().ToString("g") ?? "in progress")</span>
+                                    <span>Pair: @FormatPair(run.BaseCoin, run.QuoteCoin)</span>
+                                    <span>Dex: @run.Dex</span>
+                                    <span>Profit: @run.ProjectedNetProfitUsd:F2 USD</span>
+                                </div>
+                            </summary>
+                            <div class="detail-grid">
+                                <div><strong>Opportunity</strong><span>@run.OpportunityId</span></div>
+                                <div><strong>Borrow Asset</strong><span>@run.BorrowAsset</span></div>
+                                <div><strong>Routes</strong><span>@string.Join(" → ", run.RouteTargets.Select(Truncate))</span></div>
+                                <div><strong>Fee Amount</strong><span>@FormatFee(run)</span></div>
+                                <div><strong>Fee Status</strong><span>@(run.AppFeeEnabled ? "Enabled" : "Disabled") (@run.AppFeePercentage:F2%)</span></div>
+                                <div><strong>Transaction</strong><span>@(string.IsNullOrWhiteSpace(run.TransactionHash) ? "-" : run.TransactionHash)</span></div>
+                                <div><strong>Error</strong><span>@(string.IsNullOrWhiteSpace(run.Error) ? "None" : run.Error)</span></div>
+                                <div><strong>Status</strong><span>@run.Status</span></div>
+                            </div>
+                        </details>
+                    }
+                </section>
+            }
+        }
+    </div>
+</section>
+
+@code {
+    private readonly List<RunTelemetryEntry> _allRuns = new();
+    private readonly List<RunTelemetryEntry> _filteredRuns = new();
+    private readonly List<string> _currencyOptions = new();
+    private string _selectedCurrency = "All";
+    private string? _selectedMode;
+    private string? _selectedStatus;
+    private string _chartPoints = string.Empty;
+    private decimal _totalProfitForCurrency;
+    private decimal _totalProfitUsd;
+    private decimal _totalInvestedUsd;
+    private int _transactionCount;
+    private int _runCount;
+    private int _profitableCount;
+
+    private string SelectedCurrency
+    {
+        get => _selectedCurrency;
+        set
+        {
+            if (_selectedCurrency != value)
+            {
+                _selectedCurrency = value;
+                UpdateStats();
+            }
+        }
+    }
+
+    private string? SelectedMode
+    {
+        get => _selectedMode;
+        set
+        {
+            _selectedMode = value;
+            ApplyFilters();
+        }
+    }
+
+    private string? SelectedStatus
+    {
+        get => _selectedStatus;
+        set
+        {
+            _selectedStatus = value;
+            ApplyFilters();
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        LoadRuns();
+        Telemetry.RunUpdated += HandleRunUpdated;
+    }
+
+    private void HandleRunUpdated(object? sender, RunTelemetryEntry e)
+    {
+        InvokeAsync(() =>
+        {
+            LoadRuns();
+            StateHasChanged();
+        });
+    }
+
+    private void LoadRuns()
+    {
+        _allRuns.Clear();
+        _allRuns.AddRange(Telemetry.GetRuns());
+
+        if (_currencyOptions.Count == 0)
+        {
+            _currencyOptions.Add("All");
+        }
+
+        foreach (var coin in _allRuns.SelectMany(r => new[] { r.BaseCoin, r.QuoteCoin })
+            .Where(c => !string.IsNullOrWhiteSpace(c)))
+        {
+            if (!_currencyOptions.Any(existing => string.Equals(existing, coin, StringComparison.OrdinalIgnoreCase)))
+            {
+                _currencyOptions.Add(coin);
+            }
+        }
+
+        ApplyFilters();
+        UpdateStats();
+    }
+
+    private void ApplyFilters()
+    {
+        _filteredRuns.Clear();
+        foreach (var entry in _allRuns)
+        {
+            if (!string.IsNullOrWhiteSpace(_selectedMode) && !string.Equals(entry.Mode.ToString(), _selectedMode, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(_selectedStatus) && !string.Equals(entry.Status, _selectedStatus, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            _filteredRuns.Add(entry);
+        }
+    }
+
+    private void UpdateStats()
+    {
+        var runsForCurrency = SelectedCurrency == "All"
+            ? _allRuns
+            : _allRuns.Where(r => string.Equals(r.BaseCoin, SelectedCurrency, StringComparison.OrdinalIgnoreCase) || string.Equals(r.QuoteCoin, SelectedCurrency, StringComparison.OrdinalIgnoreCase)).ToList();
+
+        _totalProfitForCurrency = runsForCurrency.Where(r => r.Status == RunStatus.Succeeded).Sum(r => r.ProjectedNetProfitUsd);
+        _totalProfitUsd = _allRuns.Where(r => r.Status == RunStatus.Succeeded).Sum(r => r.ProjectedNetProfitUsd);
+        _totalInvestedUsd = _allRuns.Sum(r => r.ExecutionCostUsd);
+        _transactionCount = _allRuns.Count(r => !string.IsNullOrWhiteSpace(r.TransactionHash));
+        _runCount = _allRuns.Count;
+        _profitableCount = _allRuns.Count(r => r.ProjectedNetProfitUsd > 0 && r.Status == RunStatus.Succeeded);
+
+        var ordered = runsForCurrency
+            .Where(r => r.Status == RunStatus.Succeeded)
+            .OrderBy(r => r.CompletedAt ?? r.StartedAt)
+            .ToList();
+
+        if (ordered.Count == 0)
+        {
+            _chartPoints = string.Empty;
+            return;
+        }
+
+        var cumulative = 0m;
+        var max = Math.Max(1m, ordered.Sum(r => Math.Abs(r.ProjectedNetProfitUsd)));
+        var points = new List<string>();
+        for (var i = 0; i < ordered.Count; i++)
+        {
+            cumulative += ordered[i].ProjectedNetProfitUsd;
+            var y = 20 - (float)(cumulative / max * 18);
+            var x = ordered.Count == 1 ? 0 : i * (100f / (ordered.Count - 1));
+            points.Add($"{x},{Math.Clamp(y, 0, 40)}");
+        }
+
+        _chartPoints = string.Join(" ", points);
+    }
+
+    private string FormatToken(System.Numerics.BigInteger amount)
+    {
+        var scaled = (double)amount / 1_000_000d;
+        if (scaled < 1d)
+        {
+            return $"{amount} units";
+        }
+
+        return $"{scaled:F2}";
+    }
+
+    private string FormatFee(RunTelemetryEntry run)
+    {
+        if (run.AppFeeAmount.IsZero)
+        {
+            return run.AppFeeEnabled ? "0" : "Disabled";
+        }
+
+        return $"{FormatToken(run.AppFeeAmount)}";
+    }
+
+    private string FormatPair(string baseCoin, string quoteCoin)
+    {
+        if (string.IsNullOrWhiteSpace(quoteCoin))
+        {
+            return baseCoin;
+        }
+
+        return $"{baseCoin}/{quoteCoin}";
+    }
+
+    private string FormatCurrency(decimal amount) => string.Create(System.Globalization.CultureInfo.InvariantCulture, $"${amount:F2}");
+
+    private string Truncate(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "-";
+        }
+
+        return value.Length <= 12 ? value : $"{value[..6]}…{value[^4..]}";
+    }
+
+    public void Dispose()
+    {
+        Telemetry.RunUpdated -= HandleRunUpdated;
+    }
+}

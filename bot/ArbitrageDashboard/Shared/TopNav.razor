@@ -1,0 +1,104 @@
+@implements IDisposable
+@inject RunTelemetryService Telemetry
+
+<header class="top-nav">
+    <div class="brand">
+        <div class="logo">PL</div>
+        <div class="brand-text">
+            <span class="brand-title">Penti La</span>
+            <span class="brand-subtitle">Stablecoin Arbitrage Console</span>
+        </div>
+    </div>
+
+    <div class="metrics">
+        <div class="metric-card highlight">
+            <span class="metric-label">Total Profit</span>
+            <span class="metric-value">@FormatCurrency(_summary.TotalProfitUsd)</span>
+        </div>
+        <div class="metric-card">
+            <span class="metric-label">Total Cost</span>
+            <span class="metric-value">@FormatCurrency(_summary.TotalCostUsd)</span>
+        </div>
+        <div class="metric-card">
+            <span class="metric-label">Total Invested</span>
+            <span class="metric-value">@FormatCurrency(_summary.TotalInvestedUsd)</span>
+        </div>
+        <div class="metric-card">
+            <span class="metric-label">Active Bots</span>
+            <span class="metric-value">@(_summary.ActiveBots) / @_summary.SelectedBots</span>
+        </div>
+    </div>
+
+    <div class="actions">
+        <button class="wallet-button" @onclick="ToggleWallet">
+            <span class="status-indicator @( _walletConnected ? "online" : string.Empty )"></span>
+            <span class="wallet-text">@(_walletConnected ? "Wallet Connected" : "Wallet Login")</span>
+        </button>
+        <button class="ghost-button icon" title="Toggle theme" @onclick="ToggleTheme">@ThemeIcon</button>
+    </div>
+</header>
+
+@code {
+    [Parameter] public EventCallback OnToggleTheme { get; set; }
+    [Parameter] public bool IsDarkMode { get; set; }
+
+    private readonly TelemetrySummary _summary = new();
+    private bool _walletConnected;
+
+    protected override void OnInitialized()
+    {
+        UpdateSummary();
+        Telemetry.RunUpdated += HandleRunUpdated;
+    }
+
+    private void HandleRunUpdated(object? sender, RunTelemetryEntry e)
+    {
+        InvokeAsync(() =>
+        {
+            UpdateSummary();
+            StateHasChanged();
+        });
+    }
+
+    private void UpdateSummary()
+    {
+        _summary.TotalProfitUsd = Telemetry.TotalProfitUsd;
+        _summary.TotalCostUsd = Telemetry.TotalCostUsd;
+        _summary.TotalInvestedUsd = Telemetry.TotalInvestedUsd;
+        _summary.ActiveBots = Telemetry.ActiveBots;
+        _summary.SelectedBots = Telemetry.SelectedBots;
+    }
+
+    private string FormatCurrency(decimal amount) => string.Create(System.Globalization.CultureInfo.InvariantCulture, $"${amount:F2}");
+
+    private Task ToggleWallet()
+    {
+        _walletConnected = !_walletConnected;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private async Task ToggleTheme()
+    {
+        if (OnToggleTheme.HasDelegate)
+        {
+            await OnToggleTheme.InvokeAsync();
+        }
+    }
+
+    public void Dispose()
+    {
+        Telemetry.RunUpdated -= HandleRunUpdated;
+    }
+
+    private string ThemeIcon => IsDarkMode ? "🌙" : "☀️";
+
+    private sealed class TelemetrySummary
+    {
+        public decimal TotalProfitUsd { get; set; }
+        public decimal TotalCostUsd { get; set; }
+        public decimal TotalInvestedUsd { get; set; }
+        public int ActiveBots { get; set; }
+        public int SelectedBots { get; set; } = 1;
+    }
+}

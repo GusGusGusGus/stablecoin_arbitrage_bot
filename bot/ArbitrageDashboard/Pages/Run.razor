@@ -1,0 +1,416 @@
+@page "/run"
+@implements IDisposable
+@inject DashboardRunService RunService
+@inject RunTelemetryService Telemetry
+
+<section class="content-card run-tabs-card">
+    <div class="tab-bar">
+        @foreach (var tab in _tabs)
+        {
+            <button class="tab-button @(tab == _activeTab ? "active" : string.Empty)" @onclick="() => ActivateTab(tab.Id)">
+                <span>@tab.Title</span>
+                @if (tab.IsRunning)
+                {
+                    <span class="tab-indicator"></span>
+                }
+            </button>
+        }
+        <button class="add-tab" @onclick="AddTab" title="Add Bot">＋</button>
+    </div>
+
+    @if (_activeTab is not null)
+    {
+        <div class="tab-body">
+            <div class="form-grid">
+                <div class="form-field small">
+                    <label>Opportunity Payload (optional)</label>
+                    <textarea rows="3" @bind="_activeTab.Payload" placeholder="Base64 payload" disabled="@_activeTab.IsRunning"></textarea>
+                </div>
+
+                <div class="form-field">
+                    <label>DEX</label>
+                    <select @bind="_activeTab.SelectedDex" disabled="@_activeTab.IsRunning">
+                        @foreach (var dex in _dexOptions)
+                        {
+                            <option value="@dex">@dex</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="form-field">
+                    <label>Network</label>
+                    <select @bind="_activeTab.SelectedNetwork" disabled="@_activeTab.IsRunning">
+                        @foreach (var network in _networkOptions)
+                        {
+                            <option value="@network">@network</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="stablecoin-grid">
+                    <div class="stablecoin-column">
+                        <h4>Base Stablecoin</h4>
+                        <div class="stablecoin-buttons">
+                            @foreach (var coin in _stablecoins)
+                            {
+                                <button type="button"
+                                        class="stablecoin-button @(coin == _activeTab.BaseCoin ? "selected" : string.Empty)"
+                                        disabled="@_activeTab.IsRunning"
+                                        @onclick="() => SelectBaseCoin(_activeTab, coin)">@coin</button>
+                            }
+                        </div>
+                    </div>
+                    <div class="stablecoin-column">
+                        <h4>Quote Stablecoin</h4>
+                        <div class="stablecoin-buttons">
+                            @foreach (var coin in _stablecoins)
+                            {
+                                <button type="button"
+                                        class="stablecoin-button @(coin == _activeTab.QuoteCoin ? "selected" : string.Empty)"
+                                        disabled="@_activeTab.IsRunning"
+                                        @onclick="() => SelectQuoteCoin(_activeTab, coin)">@coin</button>
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-field">
+                    <label>Desired Duration (minutes)</label>
+                    <input type="number" min="1" max="240" @bind="_activeTab.DesiredDuration" disabled="@_activeTab.IsRunning" />
+                </div>
+            </div>
+
+            <div class="tab-actions">
+                <button class="primary" disabled="@_activeTab.IsRunning" @onclick="() => RequestRun(_activeTab, RunnerMode.OnDemand)">Run On-Demand</button>
+                <button class="primary" disabled="@(_activeTab.IsRunning || _activeTab.ActiveMode == RunnerMode.Loop)" @onclick="() => RequestRun(_activeTab, RunnerMode.Loop)">Start Loop</button>
+                <button class="primary" disabled="@(_activeTab.IsRunning || _activeTab.ActiveMode == RunnerMode.Backtest)" @onclick="() => RequestRun(_activeTab, RunnerMode.Backtest)">Start Backtest</button>
+            </div>
+        </div>
+    }
+</section>
+
+<section class="content-card">
+    <header class="section-header">
+        <div>
+            <h2>Live Run Feed</h2>
+            <p>Latest arbitrage activity with asset pairs, venues, profits, and statuses.</p>
+        </div>
+    </header>
+
+    <div class="run-feed">
+        @if (_runs.Count == 0)
+        {
+            <p class="muted">No runs recorded yet. Trigger a run to see live updates.</p>
+        }
+        else
+        {
+            <div class="sparkline">
+                <svg viewBox="0 0 100 30" preserveAspectRatio="none">
+                    <polyline points="@SparklinePoints" />
+                </svg>
+                <span class="sparkline-label">Projected Net Profit (USD)</span>
+            </div>
+            @foreach (var run in _runs)
+            {
+                <details class="run-entry" open>
+                    <summary>
+                        <div class="run-summary">
+                            <span class="status @run.Status.ToLowerInvariant()">@run.Status</span>
+                            <span class="asset">@FormatPair(run.BaseCoin, run.QuoteCoin)</span>
+                            <span class="amount">Borrow: @FormatToken(run.BorrowAmount)</span>
+                            <span class="profit">Net: @run.ProjectedNetProfitUsd:F2 USD</span>
+                            <span class="dex">Dex: @run.Dex</span>
+                            <span class="timestamp">@run.StartedAt.ToLocalTime():g</span>
+                            @if (run.Status == RunStatus.Executing && !string.IsNullOrWhiteSpace(run.ProcessId))
+                            {
+                                <button class="cancel-run" title="Cancel run" @onclick="() => CancelProcess(run.ProcessId)">✖</button>
+                            }
+                        </div>
+                    </summary>
+                    <div class="run-detail">
+                        <dl>
+                            <div><dt>Mode</dt><dd>@run.Mode</dd></div>
+                            <div><dt>Transaction</dt><dd>@(string.IsNullOrWhiteSpace(run.TransactionHash) ? "Pending" : Truncate(run.TransactionHash))</dd></div>
+                            <div><dt>Network</dt><dd>@run.Network</dd></div>
+                            <div><dt>Execution Cost</dt><dd>@run.ExecutionCostUsd:F2 USD</dd></div>
+                            <div><dt>Routes</dt><dd>@string.Join(", ", run.RouteTargets.Select(Truncate))</dd></div>
+                            <div><dt>Fee Status</dt><dd>@(run.AppFeeEnabled ? "Enabled" : "Disabled") at @run.AppFeePercentage:F2%</dd></div>
+                            <div><dt>Process</dt><dd>@(string.IsNullOrWhiteSpace(run.ProcessId) ? "-" : run.ProcessId)</dd></div>
+                            <div><dt>Error</dt><dd>@(string.IsNullOrWhiteSpace(run.Error) ? "None" : run.Error)</dd></div>
+                        </dl>
+                    </div>
+                </details>
+            }
+        }
+    </div>
+</section>
+
+@if (_activeTab?.ShowConfirmation is true && _activeTab.PendingMode is not null)
+{
+    <div class="modal-backdrop">
+        <div class="modal">
+            <h3>Confirm @_activeTab.PendingMode run</h3>
+            <ul>
+                <li>Pair: @FormatPair(_activeTab.BaseCoin, _activeTab.QuoteCoin)</li>
+                <li>Dex: @_activeTab.SelectedDex</li>
+                <li>Network: @_activeTab.SelectedNetwork</li>
+                <li>Mode: @_activeTab.PendingMode</li>
+                <li>Payload provided: @(string.IsNullOrWhiteSpace(_activeTab.Payload) ? "No" : "Yes")</li>
+            </ul>
+            @if (!string.IsNullOrWhiteSpace(_modalError))
+            {
+                <p class="modal-error">@_modalError</p>
+            }
+            <div class="modal-actions">
+                <button class="primary" @onclick="ConfirmRunAsync">Confirm</button>
+                <button class="ghost" @onclick="CancelConfirmation">Cancel</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private readonly string[] _dexOptions = new[] { "Uniswap", "Balancer" };
+    private readonly string[] _networkOptions = new[] { "Optimism", "Arbitrum" };
+    private readonly string[] _stablecoins = new[] { "USDC", "USDT", "DAI", "PYUSD", "BUSD", "TUSD", "RLUSD" };
+    private readonly List<RunTelemetryEntry> _runs = new();
+    private readonly List<RunTabState> _tabs = new();
+    private RunTabState? _activeTab;
+    private string? _modalError;
+
+    protected override void OnInitialized()
+    {
+        _tabs.Add(CreateTab("Bot 1"));
+        _tabs.Add(CreateTab("Bot 2"));
+        _tabs.Add(CreateTab("Bot 3"));
+        _activeTab = _tabs.First();
+
+        RefreshRuns();
+        Telemetry.RunUpdated += HandleRunUpdated;
+    }
+
+    private RunTabState CreateTab(string title) => new()
+    {
+        Title = title
+    };
+
+    private void AddTab()
+    {
+        var tab = CreateTab($"Bot {_tabs.Count + 1}");
+        _tabs.Add(tab);
+        _activeTab = tab;
+        UpdateTabStatuses();
+    }
+
+    private void ActivateTab(string id)
+    {
+        _activeTab = _tabs.FirstOrDefault(t => t.Id == id) ?? _activeTab;
+    }
+
+    private void SelectBaseCoin(RunTabState tab, string coin)
+    {
+        if (!tab.IsRunning)
+        {
+            tab.BaseCoin = coin;
+        }
+    }
+
+    private void SelectQuoteCoin(RunTabState tab, string coin)
+    {
+        if (!tab.IsRunning)
+        {
+            tab.QuoteCoin = coin;
+        }
+    }
+
+    private void RequestRun(RunTabState tab, RunnerMode mode)
+    {
+        if (tab.IsRunning)
+        {
+            return;
+        }
+
+        tab.PendingMode = mode;
+        tab.ShowConfirmation = true;
+        _modalError = null;
+    }
+
+    private async Task ConfirmRunAsync()
+    {
+        if (_activeTab is null || _activeTab.PendingMode is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var request = new RunProcessRequest
+            {
+                ProcessId = _activeTab.Id,
+                Mode = _activeTab.PendingMode.Value,
+                Payload = string.IsNullOrWhiteSpace(_activeTab.Payload) ? null : _activeTab.Payload,
+                ExecuteOnOptimism = string.Equals(_activeTab.SelectedNetwork, "Optimism", StringComparison.OrdinalIgnoreCase),
+                Dex = _activeTab.SelectedDex,
+                BaseCoin = _activeTab.BaseCoin,
+                QuoteCoin = _activeTab.QuoteCoin,
+                Network = _activeTab.SelectedNetwork
+            };
+
+            await RunService.StartRunAsync(request);
+            _activeTab.IsRunning = true;
+            _activeTab.ActiveMode = _activeTab.PendingMode;
+            UpdateTabStatuses();
+        }
+        catch (Exception ex)
+        {
+            _modalError = ex.Message;
+            return;
+        }
+        finally
+        {
+            _activeTab.ShowConfirmation = false;
+            _activeTab.PendingMode = null;
+            StateHasChanged();
+        }
+    }
+
+    private void CancelConfirmation()
+    {
+        if (_activeTab is null)
+        {
+            return;
+        }
+
+        _activeTab.PendingMode = null;
+        _activeTab.ShowConfirmation = false;
+        _modalError = null;
+    }
+
+    private void RefreshRuns()
+    {
+        _runs.Clear();
+        _runs.AddRange(Telemetry.GetRuns());
+        UpdateTabStatuses();
+    }
+
+    private void HandleRunUpdated(object? sender, RunTelemetryEntry e)
+    {
+        InvokeAsync(() =>
+        {
+            RefreshRuns();
+            StateHasChanged();
+        });
+    }
+
+    private void UpdateTabStatuses()
+    {
+        foreach (var tab in _tabs)
+        {
+            var running = RunService.IsProcessRunning(tab.Id);
+            tab.IsRunning = running;
+            if (!running)
+            {
+                tab.ActiveMode = null;
+            }
+        }
+    }
+
+    private void CancelProcess(string processId)
+    {
+        RunService.CancelProcess(processId);
+        UpdateTabStatuses();
+    }
+
+    private string FormatToken(System.Numerics.BigInteger amount)
+    {
+        var scaled = (double)amount / 1_000_000d;
+        if (scaled < 1d)
+        {
+            return $"{amount} units";
+        }
+
+        return $"{scaled:F2}";
+    }
+
+    private string FormatPair(string baseCoin, string quoteCoin)
+    {
+        if (string.IsNullOrWhiteSpace(quoteCoin))
+        {
+            return baseCoin;
+        }
+
+        return $"{baseCoin}/{quoteCoin}";
+    }
+
+    private string Truncate(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "-";
+        }
+
+        return value.Length <= 10 ? value : $"{value[..6]}…{value[^4..]}";
+    }
+
+    private string FormatFee(RunTelemetryEntry run)
+    {
+        if (run.AppFeeAmount.IsZero)
+        {
+            return run.AppFeeEnabled ? "0" : "Disabled";
+        }
+
+        return $"{FormatToken(run.AppFeeAmount)}";
+    }
+
+    private string SparklinePoints
+    {
+        get
+        {
+            if (_runs.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            var points = new List<string>();
+            var ordered = _runs
+                .Where(r => r.Status == RunStatus.Succeeded)
+                .OrderBy(r => r.CompletedAt ?? r.StartedAt)
+                .ToList();
+
+            if (ordered.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            var max = Math.Max(1m, ordered.Max(r => Math.Abs(r.ProjectedNetProfitUsd)));
+            for (var i = 0; i < ordered.Count; i++)
+            {
+                var normalized = (float)(15 + (ordered[i].ProjectedNetProfitUsd / max) * 12);
+                points.Add($"{i * (100f / Math.Max(1, ordered.Count - 1))},{30 - normalized}");
+            }
+
+            return string.Join(" ", points);
+        }
+    }
+
+    public void Dispose()
+    {
+        Telemetry.RunUpdated -= HandleRunUpdated;
+    }
+
+    private sealed class RunTabState
+    {
+        public string Id { get; } = Guid.NewGuid().ToString("N");
+        public string Title { get; set; } = string.Empty;
+        public string SelectedDex { get; set; } = "Uniswap";
+        public string SelectedNetwork { get; set; } = "Optimism";
+        public string BaseCoin { get; set; } = "USDC";
+        public string QuoteCoin { get; set; } = "USDT";
+        public string? Payload { get; set; }
+        public int DesiredDuration { get; set; } = 15;
+        public bool IsRunning { get; set; }
+        public RunnerMode? ActiveMode { get; set; }
+        public RunnerMode? PendingMode { get; set; }
+        public bool ShowConfirmation { get; set; }
+    }
+}

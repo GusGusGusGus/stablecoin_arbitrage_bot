@@ -1,0 +1,16 @@
+.doc-body {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    font-size: 0.95rem;
+    line-height: 1.6;
+}
+
+.doc-body ul {
+    padding-left: 1.25rem;
+    margin: 0;
+}
+
+.doc-body li {
+    margin-bottom: 0.4rem;
+}

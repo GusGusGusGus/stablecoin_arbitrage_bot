@@ -51,6 +51,16 @@ contract StablecoinArbitrage is IFlashLoanSimpleReceiver, AccessControl, Pausabl
     mapping(address => bool) public approvedAssets;
     mapping(address => bool) public approvedTargets;
     mapping(bytes4 => bool) public allowedSelectors;
+    // Optional per-asset maximum borrow caps (0 means no cap)
+    mapping(address => uint256) public maxBorrowByAsset;
+
+    struct FeeSettings {
+        bool enabled;
+        uint256 feeBps;
+        address recipient;
+    }
+
+    FeeSettings public feeSettings;
 
     event FlashArbitrageRequested(address indexed executor, address indexed asset, uint256 amount, uint256 minProfit);
     event FlashArbitrageExecuted(address indexed asset, uint256 grossProfit, uint256 premium, uint256 netProfit, address indexed payout);
@@ -58,6 +68,8 @@ contract StablecoinArbitrage is IFlashLoanSimpleReceiver, AccessControl, Pausabl
     event AssetUpdated(address indexed asset, bool allowed);
     event SelectorUpdated(bytes4 indexed selector, bool allowed);
     event TreasuryUpdated(address indexed newTreasury);
+    event MaxBorrowUpdated(address indexed asset, uint256 cap);
+    event FeeSettingsUpdated(bool enabled, uint256 feeBps, address indexed recipient);
 
     error InvalidTarget(address target);
     error InvalidSelector(bytes4 selector);
@@ -68,6 +80,9 @@ contract StablecoinArbitrage is IFlashLoanSimpleReceiver, AccessControl, Pausabl
     error AssetNotApproved(address asset);
     error InsufficientProfit(uint256 expected, uint256 actual);
     error PoolMismatch(address sender);
+    error BorrowAmountTooHigh(uint256 requested, uint256 maxAllowed);
+    error InvalidFeeRecipient();
+    error InvalidFeeBps(uint256 bps);
 
     constructor(IPool pool, address admin, address treasury_) {
         require(address(pool) != address(0), "pool-zero");
@@ -80,6 +95,8 @@ contract StablecoinArbitrage is IFlashLoanSimpleReceiver, AccessControl, Pausabl
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(GUARDIAN_ROLE, admin);
         _grantRole(STRATEGIST_ROLE, admin);
+
+        feeSettings = FeeSettings({enabled: false, feeBps: 500, recipient: treasury_});
     }
 
     receive() external payable {}
@@ -99,10 +116,25 @@ contract StablecoinArbitrage is IFlashLoanSimpleReceiver, AccessControl, Pausabl
         emit SelectorUpdated(selector, allowed);
     }
 
+    function setMaxBorrow(address asset, uint256 cap) external onlyRole(STRATEGIST_ROLE) {
+        maxBorrowByAsset[asset] = cap;
+        emit MaxBorrowUpdated(asset, cap);
+    }
+
     function setTreasury(address newTreasury) external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(newTreasury != address(0), "treasury-zero");
         treasury = newTreasury;
         emit TreasuryUpdated(newTreasury);
+    }
+
+    function setFeeSettings(bool enabled, uint256 feeBps, address recipient) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (enabled) {
+            if (recipient == address(0)) revert InvalidFeeRecipient();
+            if (feeBps == 0 || feeBps > 10_000) revert InvalidFeeBps(feeBps);
+        }
+
+        feeSettings = FeeSettings({enabled: enabled, feeBps: feeBps, recipient: recipient});
+        emit FeeSettingsUpdated(enabled, feeBps, recipient);
     }
 
     function approveSpender(address token, address spender, uint256 amount) external onlyRole(STRATEGIST_ROLE) {
@@ -137,6 +169,8 @@ contract StablecoinArbitrage is IFlashLoanSimpleReceiver, AccessControl, Pausabl
         require(trades.length > 0, "trades-empty");
         require(payout != address(0), "payout-zero");
         require(amount > 0, "amount-zero");
+        uint256 cap = maxBorrowByAsset[asset];
+        if (cap != 0 && amount > cap) revert BorrowAmountTooHigh(amount, cap);
 
         runtime = RuntimeContext({preBalance: IERC20(asset).balanceOf(address(this)), asset: asset, active: true});
 
@@ -204,14 +238,25 @@ contract StablecoinArbitrage is IFlashLoanSimpleReceiver, AccessControl, Pausabl
         uint256 repayment = amount + premium;
         uint256 endingBalance = IERC20(asset).balanceOf(address(this));
 
-        uint256 expectedPostRepayBalance = runtime.preBalance + callbackData.minProfit + repayment;
+        uint256 feeAmount = 0;
+        if (feeSettings.enabled) {
+            feeAmount = (amount * feeSettings.feeBps) / 10_000;
+        }
+
+        uint256 expectedPostRepayBalance = runtime.preBalance + callbackData.minProfit + repayment + feeAmount;
         if (endingBalance < expectedPostRepayBalance) {
             revert InsufficientProfit(expectedPostRepayBalance, endingBalance);
         }
 
         IERC20(asset).safeTransfer(address(aavePool), repayment);
 
-        uint256 netRemainder = endingBalance - repayment;
+        if (feeAmount > 0) {
+            address recipient = feeSettings.recipient;
+            if (recipient == address(0)) revert InvalidFeeRecipient();
+            IERC20(asset).safeTransfer(recipient, feeAmount);
+        }
+
+        uint256 netRemainder = endingBalance - repayment - feeAmount;
         uint256 profit = netRemainder - runtime.preBalance;
 
         if (profit > 0) {
@@ -222,4 +267,3 @@ contract StablecoinArbitrage is IFlashLoanSimpleReceiver, AccessControl, Pausabl
         return true;
     }
 }
-

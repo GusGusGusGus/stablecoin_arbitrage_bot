@@ -1,0 +1,71 @@
+@page "/configurations"
+@inject AppConfig AppConfig
+
+<section class="content-card config-page">
+    <header class="section-header">
+        <div>
+            <h2>Configuration</h2>
+            <p>Review and adjust core settings. Pending changes are local previews only.</p>
+        </div>
+    </header>
+
+    <form class="config-form">
+        <fieldset>
+            <legend>Network Endpoints</legend>
+            <label>Ethereum Mainnet RPC
+                <input type="url" value="@AppConfig.Networks.MainnetRpc" readonly />
+            </label>
+            <label>Optimism RPC
+                <input type="url" value="@AppConfig.Networks.OptimismRpc" readonly />
+            </label>
+            <label>Flashbots Relay
+                <input type="url" value="@AppConfig.Networks.FlashbotsRelay" readonly />
+            </label>
+        </fieldset>
+
+        <fieldset>
+            <legend>Contract Addresses</legend>
+            <label>Arbitrage Contract
+                <input type="text" value="@AppConfig.Contract.ArbitrageAddress" readonly />
+            </label>
+            <label>Executor Wallet (masked)
+                <input type="password" value="@Mask(AppConfig.Contract.ExecutorKey)" readonly />
+            </label>
+            <label>Aave Pool
+                <input type="text" value="@AppConfig.Contract.AavePool" readonly />
+            </label>
+        </fieldset>
+
+        <fieldset>
+            <legend>Operational Controls</legend>
+            <label class="toggle">
+                <input type="checkbox" disabled />
+                <span>Number of Bots</span>
+                <input type="number" min="1" max="10" value="1" disabled />
+            </label>
+            <label class="toggle">
+                <input type="checkbox" @bind="_notifications" />
+                <span>Notifications</span>
+            </label>
+            <label class="toggle">
+                <input type="checkbox" @bind="_darkMode" />
+                <span>Dark Mode</span>
+            </label>
+        </fieldset>
+    </form>
+</section>
+
+@code {
+    private bool _notifications = true;
+    private bool _darkMode = true;
+
+    private string Mask(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value.Length <= 6)
+        {
+            return "********";
+        }
+
+        return $"{value[..4]}********{value[^4..]}";
+    }
+}

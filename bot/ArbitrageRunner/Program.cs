@@ -57,6 +57,9 @@ public static class Program
         builder.Services.AddSingleton<OpportunityScanner>();
         builder.Services.AddSingleton<ExecutionPlanner>();
         builder.Services.AddSingleton<BacktestService>();
+        builder.Services.AddSingleton<RunControlService>();
+        builder.Services.AddSingleton<RunTelemetryService>();
+        builder.Services.AddSingleton<RunCoordinator>();
         builder.Services.AddHostedService<ArbitrageWorker>();
 
         var host = builder.Build();

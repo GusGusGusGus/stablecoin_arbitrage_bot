@@ -7,11 +7,13 @@ artifacts/
 .env
 .DS_Store
 *.tsbuildinfo
-bot/ArbitrageRunner/bin/
-bot/ArbitrageRunner/obj/
+**/bin/
+**/obj/
 config/appsettings.json
 config/backtests/*.json
 data/**/*.db
 data/**/*.sqlite
+*.db
+*.sqlite
 package-lock.json
 config/deployment.latest.json

@@ -1,0 +1,43 @@
+@page "/documentation"
+
+<section class="content-card">
+    <header class="section-header">
+        <div>
+            <h2>User Guide</h2>
+            <p>Everything you need to operate the arbitrage stack safely.</p>
+        </div>
+    </header>
+
+    <article class="doc-body">
+        <h3>1. Connecting</h3>
+        <p>
+            Configure RPC endpoints and contract addresses in <strong>config/appsettings.json</strong>. Use the wallet login button to
+            verify operator status before executing runs.
+        </p>
+
+        <h3>2. Running Strategies</h3>
+        <ul>
+            <li><strong>On-Demand</strong>: Executes a single opportunity. Provide calldata or let the scanner detect live spreads.</li>
+            <li><strong>Loop Mode</strong>: Continuously scans and executes while profitable. Cancel anytime from the Run page.</li>
+            <li><strong>Backtest</strong>: Replays stored snapshots to validate strategy risk parameters and fee settings.</li>
+        </ul>
+
+        <h3>3. Risk Parameters</h3>
+        <p>
+            Minimum profit, execution ceilings, and sandwich buffers are defined in the risk section of the configuration file.
+            Use the Stats page to evaluate whether the guardrails require tuning.
+        </p>
+
+        <h3>4. App Fees</h3>
+        <p>
+            A 5% application fee can be collected to the designated revenue wallet. The feature is implemented but disabled by
+            default and surfaced as a read-only preview in the dashboard.
+        </p>
+
+        <h3>5. Cancellation Workflow</h3>
+        <p>
+            Every run passes a linked cancellation token. Trigger "Cancel Current" to immediately unwind the active run while
+            preserving the background worker for future jobs.
+        </p>
+    </article>
+</section>

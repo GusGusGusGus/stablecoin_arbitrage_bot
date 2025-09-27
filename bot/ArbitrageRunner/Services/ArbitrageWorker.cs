@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using System.Numerics;
 using System.Text.Json;
 using System.Threading;
@@ -13,28 +12,16 @@ namespace ArbitrageRunner.Services;
 public sealed class ArbitrageWorker : BackgroundService
 {
     private readonly RunnerOptions _options;
-    private readonly OpportunityScanner _scanner;
-    private readonly ExecutionPlanner _planner;
-    private readonly FlashLoanService _flashLoan;
-    private readonly BacktestService _backtest;
-    private readonly AppConfig _config;
+    private readonly RunCoordinator _coordinator;
     private readonly ILogger<ArbitrageWorker> _logger;
 
     public ArbitrageWorker(
         RunnerOptions options,
-        OpportunityScanner scanner,
-        ExecutionPlanner planner,
-        FlashLoanService flashLoan,
-        BacktestService backtest,
-        AppConfig config,
+        RunCoordinator coordinator,
         ILogger<ArbitrageWorker> logger)
     {
         _options = options;
-        _scanner = scanner;
-        _planner = planner;
-        _flashLoan = flashLoan;
-        _backtest = backtest;
-        _config = config;
+        _coordinator = coordinator;
         _logger = logger;
     }
 
@@ -45,100 +32,23 @@ public sealed class ArbitrageWorker : BackgroundService
         switch (_options.Mode)
         {
             case RunnerMode.Loop:
-                await RunLoopAsync(stoppingToken);
+                await _coordinator.RunLoopAsync(stoppingToken, RunCoordinator.RunExecutionContext.System);
                 break;
             case RunnerMode.OnDemand:
-                await RunOnDemandAsync(stoppingToken);
+                await _coordinator.RunOnDemandAsync(new RunCoordinator.OnDemandRunRequest
+                {
+                    OpportunityPayload = _options.OpportunityPayload,
+                    ExecuteOnOptimism = _options.ExecuteOnOptimism
+                }, RunCoordinator.RunExecutionContext.System, stoppingToken);
                 break;
             case RunnerMode.Backtest:
-                await RunBacktestAsync(stoppingToken);
+                await _coordinator.RunBacktestAsync(stoppingToken, RunCoordinator.RunExecutionContext.System);
                 break;
             default:
                 throw new ArgumentOutOfRangeException();
         }
     }
-
-    private async Task RunLoopAsync(CancellationToken cancellationToken)
-    {
-        var delay = TimeSpan.FromSeconds(_config.Risk.LoopBackoffSeconds);
-
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            try
-            {
-                var opportunity = await _scanner.DetectAsync(cancellationToken);
-                if (opportunity is null)
-                {
-                    await Task.Delay(delay, cancellationToken);
-                    continue;
-                }
-
-                var validated = await _planner.ValidateAsync(opportunity, cancellationToken);
-                if (validated is null)
-                {
-                    await Task.Delay(delay, cancellationToken);
-                    continue;
-                }
-
-                await _flashLoan.ExecuteAsync(validated, cancellationToken);
-            }
-            catch (TaskCanceledException)
-            {
-                break;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Loop execution error");
-                await Task.Delay(delay, cancellationToken);
-            }
-        }
-    }
-
-    private async Task RunOnDemandAsync(CancellationToken cancellationToken)
-    {
-        ArbitrageOpportunity? opportunity = null;
-
-        if (!string.IsNullOrWhiteSpace(_options.OpportunityPayload))
-        {
-            opportunity = ParseOpportunityPayload(_options.OpportunityPayload!, _options.ExecuteOnOptimism);
-        }
-        else
-        {
-            opportunity = await _scanner.DetectAsync(cancellationToken);
-            if (opportunity is null)
-            {
-                _logger.LogWarning("No live opportunity detected for on-demand execution");
-                return;
-            }
-        }
-
-        var validated = await _planner.ValidateAsync(opportunity, cancellationToken);
-        if (validated is null)
-        {
-            _logger.LogWarning("On-demand opportunity {OpportunityId} failed validation", opportunity.OpportunityId);
-            return;
-        }
-
-        await _flashLoan.ExecuteAsync(validated, cancellationToken);
-    }
-
-    private async Task RunBacktestAsync(CancellationToken cancellationToken)
-    {
-        var snapshots = await _backtest.LoadRecentAsync(limit: null, cancellationToken);
-        foreach (var snapshot in snapshots)
-        {
-            var validated = await _planner.ValidateAsync(snapshot, cancellationToken);
-            if (validated is null)
-            {
-                _logger.LogInformation("Skipping snapshot {OpportunityId}", snapshot.OpportunityId);
-                continue;
-            }
-
-            _logger.LogInformation("Backtest would execute opportunity {OpportunityId}", snapshot.OpportunityId);
-        }
-    }
-
-    private static ArbitrageOpportunity ParseOpportunityPayload(string payload, bool executeOnOptimism)
+    internal static ArbitrageOpportunity ParseOpportunityPayload(string payload, bool executeOnOptimism)
     {
         var dto = JsonSerializer.Deserialize<OpportunityPayloadDto>(payload);
         if (dto is null)

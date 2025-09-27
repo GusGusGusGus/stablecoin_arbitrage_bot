@@ -10,6 +10,7 @@ public sealed record AppConfig
     public required RiskConfig Risk { get; init; }
     public PriceFeedsConfig PriceFeeds { get; init; } = new();
     public HistoricalDataConfig HistoricalData { get; init; } = new();
+    public FeeConfig Fees { get; init; } = new();
 
     public static AppConfig Default() => new()
     {
@@ -17,7 +18,8 @@ public sealed record AppConfig
         Contract = new ContractConfig(),
         Risk = RiskConfig.Default(),
         PriceFeeds = new PriceFeedsConfig(),
-        HistoricalData = new HistoricalDataConfig()
+        HistoricalData = new HistoricalDataConfig(),
+        Fees = new FeeConfig()
     };
 }
 
@@ -46,8 +48,18 @@ public sealed record RiskConfig
     public decimal BaseFeeSafetyMultiplier { get; init; } = 1.3m;
     public decimal SandwichBufferBps { get; init; } = 5m;
     public ulong LoopBackoffSeconds { get; init; } = 4;
+    // Optional: per-asset absolute borrow caps in raw token units (wei for 18d, 6d for USDC, etc.)
+    // Key: token address (any case); Value: numeric string representing max amount in token's smallest unit.
+    public Dictionary<string, string> MaxBorrowByAsset { get; init; } = new();
 
     public static RiskConfig Default() => new();
+}
+
+public sealed record FeeConfig
+{
+    public bool Enabled { get; init; }
+    public decimal Percentage { get; init; } = 5m;
+    public string RevenueAddress { get; init; } = string.Empty;
 }
 
 public sealed record RiskProfile

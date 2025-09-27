@@ -1,0 +1,35 @@
+@inherits LayoutComponentBase
+
+<PageTitle>Penti La Dashboard</PageTitle>
+
+<div class="page-shell @( _navCollapsed ? "nav-collapsed" : string.Empty)" data-theme="@Theme">
+    <aside class="sidebar @( _navCollapsed ? "collapsed" : string.Empty)">
+        <button class="sidebar-toggle" @onclick="ToggleSidebar">☰</button>
+        <NavMenu Collapsed="_navCollapsed" />
+    </aside>
+
+    <main class="main-area">
+        <TopNav OnToggleTheme="ToggleTheme" IsDarkMode="_darkMode" />
+        <section class="content-area">
+            @Body
+        </section>
+    </main>
+</div>
+
+@code {
+    private bool _darkMode = true;
+    private bool _navCollapsed;
+
+    private string Theme => _darkMode ? "dark" : "light";
+
+    private void ToggleTheme()
+    {
+        _darkMode = !_darkMode;
+        StateHasChanged();
+    }
+
+    private void ToggleSidebar()
+    {
+        _navCollapsed = !_navCollapsed;
+    }
+}

@@ -52,6 +52,21 @@ public sealed class FlashLoanService
         var handler = web3.Eth.GetContractTransactionHandler<ExecuteFlashArbitrageFunction>();
         var call = BuildTransactionMessage(opportunity, account.Address);
 
+        var (feeEnabled, feeAmount, feePercent) = CalculatePlannedFee(opportunity.BorrowAmount);
+        if (feeEnabled)
+        {
+            if (string.IsNullOrWhiteSpace(_config.Fees.RevenueAddress))
+            {
+                throw new InvalidOperationException("App fee revenue address must be configured when fees are enabled");
+            }
+
+            _logger.LogInformation(
+                "App fee scheduled at {Percent:F2}% => {FeeAmount} units to {Recipient}",
+                feePercent,
+                feeAmount,
+                _config.Fees.RevenueAddress);
+        }
+
         try
         {
             await handler.EstimateGasAsync(_config.Contract.ArbitrageAddress, call);
@@ -70,6 +85,28 @@ public sealed class FlashLoanService
 
         _logger.LogInformation("Arbitrage transaction mined: {TxHash}", receipt.TransactionHash);
         return receipt.TransactionHash;
+    }
+
+    private (bool Enabled, BigInteger Amount, decimal Percentage) CalculatePlannedFee(BigInteger borrowAmount)
+    {
+        if (!_config.Fees.Enabled)
+        {
+            return (false, BigInteger.Zero, _config.Fees.Percentage);
+        }
+
+        if (_config.Fees.Percentage <= 0)
+        {
+            throw new InvalidOperationException("Fee percentage must be positive when fees are enabled");
+        }
+
+        var feeBps = (int)Math.Round(_config.Fees.Percentage * 100m, MidpointRounding.AwayFromZero);
+        if (feeBps <= 0)
+        {
+            throw new InvalidOperationException("Fee basis points rounds to zero; adjust percentage");
+        }
+
+        var amount = (borrowAmount * feeBps) / 10_000;
+        return (true, amount, _config.Fees.Percentage);
     }
 
     private ExecuteFlashArbitrageFunction BuildTransactionMessage(ArbitrageOpportunity opportunity, string payout)

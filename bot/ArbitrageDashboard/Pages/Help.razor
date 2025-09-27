@@ -1,0 +1,50 @@
+@page "/help"
+
+<section class="content-card">
+    <header class="section-header">
+        <div>
+            <h2>Support</h2>
+            <p>Need help? Send us the context and we'll respond as soon as possible.</p>
+        </div>
+    </header>
+
+    <EditForm Model="_ticket" OnValidSubmit="SubmitAsync">
+        <DataAnnotationsValidator />
+        <ValidationSummary />
+
+        <div class="form-grid">
+            <label>Email
+                <InputText type="email" @bind-Value="_ticket.Email" required />
+            </label>
+            <label>Topic
+                <InputText @bind-Value="_ticket.Topic" required />
+            </label>
+            <label>Message
+                <InputTextArea @bind-Value="_ticket.Body" rows="5" required />
+            </label>
+        </div>
+        <button class="primary" type="submit">Send Help Request</button>
+        @if (_submitted)
+        {
+            <p class="success">Thanks! We'll be in touch via @_ticket.Email.</p>
+        }
+    </EditForm>
+</section>
+
+@code {
+    private readonly SupportTicket _ticket = new();
+    private bool _submitted;
+
+    private Task SubmitAsync()
+    {
+        _submitted = true;
+        return Task.CompletedTask;
+    }
+
+    private sealed class SupportTicket
+    {
+        public string Email { get; set; } = string.Empty;
+        public string Topic { get; set; } = string.Empty;
+        public string Body { get; set; } = string.Empty;
+    }
+}

@@ -1,0 +1,46 @@
+@using Microsoft.AspNetCore.Components.Routing
+
+<nav class="nav-menu @(Collapsed ? "collapsed" : string.Empty)">
+    <ul class="nav-links">
+        <li>
+            <NavLink href="/" Match="NavLinkMatch.All">
+                <span class="icon">🏠</span>
+                <span class="link-text">Home</span>
+            </NavLink>
+        </li>
+        <li>
+            <NavLink href="/run">
+                <span class="icon">⚡</span>
+                <span class="link-text">Run</span>
+            </NavLink>
+        </li>
+        <li>
+            <NavLink href="/stats">
+                <span class="icon">📈</span>
+                <span class="link-text">Stats</span>
+            </NavLink>
+        </li>
+        <li>
+            <NavLink href="/configurations">
+                <span class="icon">⚙️</span>
+                <span class="link-text">Configurations</span>
+            </NavLink>
+        </li>
+        <li>
+            <NavLink href="/documentation">
+                <span class="icon">📘</span>
+                <span class="link-text">Documentation</span>
+            </NavLink>
+        </li>
+        <li>
+            <NavLink href="/help">
+                <span class="icon">✉️</span>
+                <span class="link-text">Help</span>
+            </NavLink>
+        </li>
+    </ul>
+</nav>
+
+@code {
+    [Parameter] public bool Collapsed { get; set; }
+}

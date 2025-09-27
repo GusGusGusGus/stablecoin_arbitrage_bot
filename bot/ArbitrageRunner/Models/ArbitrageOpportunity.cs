@@ -19,4 +19,9 @@ public sealed record ArbitrageOpportunity
     public bool ExecuteOnOptimism { get; init; }
     public BigInteger BaseFeeUpperBoundWei { get; init; } = BigInteger.Zero;
     public ulong Deadline { get; init; }
+    public decimal ExecutionCostEstimateUsd { get; init; }
+    public decimal ProjectedNetProfitUsd { get; init; }
+    public BigInteger AppFeeAmount { get; init; } = BigInteger.Zero;
+    public decimal AppFeePercentage { get; init; }
+    public bool AppFeeEnabled { get; init; }
 }
